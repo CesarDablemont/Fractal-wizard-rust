@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use eframe::egui::{pos2, Pos2, Vec2};
 use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
+use super::dimension;
 
 pub struct FractalResult {
     pub points: Vec<Pos2>,
     pub lines: Vec<Line>,
     pub dimension: f32,
     pub point_scale: Vec<f32>,
+    pub box_counting: Option<dimension::BoxCountingResult>,
 }
 
 pub fn generate_fractal(
@@ -18,6 +20,7 @@ pub fn generate_fractal(
     iterations: usize,
     regroup: bool,
     display_parent: bool,
+    delta_radius: f32,
 ) -> FractalResult {
     let mut current = initial.to_vec();
     let mut all_shapes: Vec<ShapePatternData> = Vec::new();
@@ -71,19 +74,33 @@ pub fn generate_fractal(
         }
     }
 
-    let dimension = if !pattern.is_empty() && pattern[0].scale > 0.0 {
+    let dimension = if !pattern.is_empty() && pattern[0].scale > 1.0 {
         let n = pattern.len() as f32;
-        let h = 1.0 / pattern[0].scale;
-        if h > 0.0 { n.log10() / h.log10() } else { 0.0 }
+        let s = pattern[0].scale;
+        n.log10() / s.log10()
     } else {
         0.0
     };
+
+    if delta_radius > 0.0 {
+        use rand::Rng;
+        let mut rng = rand::rng();
+        for p in &mut final_points {
+            let angle = rng.random::<f32>() * std::f32::consts::TAU;
+            let r = delta_radius * rng.random::<f32>().sqrt();
+            p.x += r * angle.cos();
+            p.y += r * angle.sin();
+        }
+    }
+
+    let box_counting = dimension::box_counting(&final_points, iterations);
 
     FractalResult {
         points: final_points,
         lines: final_lines,
         point_scale: final_point_scale,
         dimension,
+        box_counting,
     }
 }
 

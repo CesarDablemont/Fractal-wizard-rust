@@ -209,11 +209,13 @@ impl FractalEditor {
             self.iterations,
             self.regroup,
             self.display_parent,
+            if self.add_delta { self.delta.x.abs() } else { 0.0 },
         );
 
         self.fractal = Some(result);
         self.canvas_renderer.rebuild_chunks = true;
         self.canvas_renderer.chunk_grid = None;
+        self.canvas_renderer.mesh_dirty = true;
         self.simulations.clear();
         self.selected_simulation = None;
         self.current_step = 0;
@@ -328,7 +330,12 @@ impl FractalEditor {
         if self.canvas_renderer.rebuild_chunks {
             let points = self.fractal_points().to_vec();
             if !points.is_empty() {
-                let cell_size = self.camera.grid_spacing.max(1.0);
+                let min_x = points.iter().map(|p| p.x).fold(f32::MAX, f32::min);
+                let max_x = points.iter().map(|p| p.x).fold(f32::MIN, f32::max);
+                let min_y = points.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+                let max_y = points.iter().map(|p| p.y).fold(f32::MIN, f32::max);
+                let size = (max_x - min_x).max(max_y - min_y);
+                let cell_size = (size / 50.0).max(size / (points.len() as f32).sqrt()).max(0.01);
                 self.canvas_renderer.chunk_grid = Some(ChunkGrid::new(&points, cell_size));
             }
             self.canvas_renderer.rebuild_chunks = false;
@@ -497,9 +504,7 @@ impl FractalEditor {
                 ui.checkbox(&mut self.display_parent, "Afficher parents");
                 ui.checkbox(&mut self.add_delta, "Incertitude");
                 if self.add_delta {
-                    ui.add(egui::DragValue::new(&mut self.delta.x).speed(0.1).prefix("ΔX:"));
-                    ui.add(egui::DragValue::new(&mut self.delta.y).speed(0.1).prefix("ΔY:"));
-                    ui.add(egui::DragValue::new(&mut self.delta_intervals).range(1..=10000).prefix("Intervalles:"));
+                    ui.add(egui::DragValue::new(&mut self.delta.x).speed(0.1).prefix("Rayon:"));
                 }
 
                 if self.fractal.is_some() {
@@ -604,72 +609,75 @@ impl FractalEditor {
 
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
+        {
+            let fractal = self.fractal.as_ref();
+            let points = fractal.map(|f| f.points.as_slice()).unwrap_or(&[]);
+            let lines = fractal.map(|f| f.lines.as_slice()).unwrap_or(&[]);
+            let point_scale = fractal.map(|f| f.point_scale.as_slice()).unwrap_or(&[]);
 
-        let points = self.fractal_points();
-        let lines = self.fractal_lines();
+            if !lines.is_empty() {
+                self.canvas_renderer.draw_fractal_lines(
+                    &self.camera, canvas_rect, points, lines, Color32::YELLOW, &mut shapes,
+                );
+            }
 
-        if !lines.is_empty() {
-            self.canvas_renderer.draw_fractal_lines(
-                &self.camera, canvas_rect, points, lines, Color32::YELLOW, &mut shapes,
-            );
-        }
-
-        if !points.is_empty() {
-            let highlight = if let Some(sim_idx) = self.selected_simulation {
-                if self.current_step < self.simulations[sim_idx].walk_steps.len() {
-                    Some(self.simulations[sim_idx].walk_steps[self.current_step])
+            if !points.is_empty() {
+                let highlight = if let Some(sim_idx) = self.selected_simulation {
+                    if self.current_step < self.simulations[sim_idx].walk_steps.len() {
+                        Some(self.simulations[sim_idx].walk_steps[self.current_step])
+                    } else {
+                        None
+                    }
                 } else {
                     None
-                }
-            } else {
-                None
-            };
+                };
 
-            match self.render_mode {
-                RenderMode::Normal => {
-                    self.canvas_renderer.draw_fractal_points(
-                        &self.camera, canvas_rect, points, self.fractal_point_scale(), &[], highlight, &mut shapes,
-                    );
-                }
-                RenderMode::GlobalHeatMap | RenderMode::IndividualHeatMap => {
-                    let heatmap = match self.render_mode {
-                        RenderMode::GlobalHeatMap => &self.global_heatmap,
-                        _ => &self.individual_heatmap,
-                    };
-                    let colors: Vec<Option<Color32>> = heatmap.iter().map(|&s| Some(heatmap_color(s))).collect();
-                    self.canvas_renderer.draw_fractal_points(
-                        &self.camera, canvas_rect, points, self.fractal_point_scale(), &colors, highlight, &mut shapes,
-                    );
+                match self.render_mode {
+                    RenderMode::Normal => {
+                        self.canvas_renderer.draw_fractal_points(
+                            &self.camera, canvas_rect, points, point_scale, &[], highlight, &mut shapes,
+                        );
+                    }
+                    RenderMode::GlobalHeatMap | RenderMode::IndividualHeatMap => {
+                        let heatmap = match self.render_mode {
+                            RenderMode::GlobalHeatMap => &self.global_heatmap,
+                            _ => &self.individual_heatmap,
+                        };
+                        let colors: Vec<Option<Color32>> = heatmap.iter().map(|&s| Some(heatmap_color(s))).collect();
+                        self.canvas_renderer.draw_fractal_points(
+                            &self.camera, canvas_rect, points, point_scale, &colors, highlight, &mut shapes,
+                        );
 
-                    if self.show_heat_score {
-                        let center = canvas_rect.center();
-                        if heatmap.len() == points.len() {
-                            for (i, &score) in heatmap.iter().enumerate() {
-                                let screen = self.camera.world_to_screen(points[i], center);
-                                let text = format!("{:.2}", score);
-                                painter.text(
-                                    screen + Vec2::new(0.0, self.camera.point_size / 2.0 + 2.0),
-                                    Align2::CENTER_TOP,
-                                    text,
-                                    FontId::proportional(10.0),
-                                    Color32::WHITE,
-                                );
+                        if self.show_heat_score {
+                            let center = canvas_rect.center();
+                            if heatmap.len() == points.len() {
+                                for (i, &score) in heatmap.iter().enumerate() {
+                                    let screen = self.camera.world_to_screen(points[i], center);
+                                    let text = format!("{:.2}", score);
+                                    painter.text(
+                                        screen + Vec2::new(0.0, self.camera.point_size / 2.0 + 2.0),
+                                        Align2::CENTER_TOP,
+                                        text,
+                                        FontId::proportional(10.0),
+                                        Color32::WHITE,
+                                    );
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        if response.clicked_by(egui::PointerButton::Primary) && self.state == EditorState::SelectPointSimulation {
-            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                let world = self.camera.screen_to_world(mouse, canvas_center);
-                let half = self.camera.point_size / 2.0;
-                for (i, &p) in points.iter().enumerate() {
-                    if (p.x - world.x).abs() <= half && (p.y - world.y).abs() <= half {
-                        self.run_simulation(i);
-                        self.state = EditorState::Mouse;
-                        break;
+            if response.clicked_by(egui::PointerButton::Primary) && self.state == EditorState::SelectPointSimulation {
+                if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
+                    let world = self.camera.screen_to_world(mouse, canvas_center);
+                    let half = self.camera.point_size / 2.0;
+                    for (i, &p) in points.iter().enumerate() {
+                        if (p.x - world.x).abs() <= half && (p.y - world.y).abs() <= half {
+                            self.run_simulation(i);
+                            self.state = EditorState::Mouse;
+                            break;
+                        }
                     }
                 }
             }
@@ -682,9 +690,18 @@ impl FractalEditor {
         ui.heading("Propriétés");
 
         if let Some(ref fractal) = self.fractal {
-            ui.label(format!("Dimension: {:.4}", fractal.dimension));
+            ui.label(format!("Dimension théorique: {:.4}", fractal.dimension));
             ui.label(format!("Points: {}", fractal.points.len()));
             ui.label(format!("Lignes: {}", fractal.lines.len()));
+
+            if let Some(ref bc) = fractal.box_counting {
+                ui.separator();
+                ui.label(format!("Dimension boîtes: {:.4}", bc.dimension));
+                ui.label(format!("Dimension d'information: {:.4}", bc.information_dimension));
+                ui.label(format!("Dimension de corrélation: {:.4}", bc.correlation_dimension));
+                ui.label(format!("Moyenne: {:.6}", bc.proportion_mean));
+                ui.label(format!("Variance: {:.2e}", bc.proportion_variance));
+            }
 
             ui.separator();
             ui.label("Données d'entrée:");

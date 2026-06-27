@@ -6,9 +6,21 @@ use crate::scene::chunk_grid::ChunkGrid;
 use crate::types::Line;
 
 #[derive(Default)]
+pub struct CachedMesh {
+    mesh: Arc<Mesh>,
+    camera_pos: Vec2,
+    camera_zoom: f32,
+    canvas_center: Pos2,
+    points_len: usize,
+    lines_len: usize,
+}
+
+#[derive(Default)]
 pub struct CanvasRenderer {
     pub chunk_grid: Option<ChunkGrid>,
     pub rebuild_chunks: bool,
+    pub mesh_dirty: bool,
+    cached_lines: Option<CachedMesh>,
 }
 
 impl CanvasRenderer {
@@ -16,17 +28,9 @@ impl CanvasRenderer {
         Self {
             chunk_grid: None,
             rebuild_chunks: true,
+            mesh_dirty: true,
+            cached_lines: None,
         }
-    }
-
-    fn choose_grid_spacing(zoom: f32) -> f32 {
-        let target = 50.0 / zoom;
-        let candidates = [5.0, 25.0, 100.0, 500.0, 2500.0, 12500.0];
-        candidates.into_iter().min_by(|a, b| {
-            let da = (a - target).abs();
-            let db = (b - target).abs();
-            da.partial_cmp(&db).unwrap()
-        }).unwrap_or(25.0)
     }
 
     pub fn draw_grid(&self, camera: &Camera, canvas_rect: Rect, shapes: &mut Vec<Shape>) {
@@ -36,7 +40,7 @@ impl CanvasRenderer {
 
         let center = canvas_rect.center();
         let viewport = camera.visible_world_rect(canvas_rect, center);
-        let spacing = Self::choose_grid_spacing(camera.zoom);
+        let spacing = Camera::choose_grid_spacing(camera.zoom);
 
         let start_x = (viewport.min.x / spacing).floor() * spacing;
         let end_x = (viewport.max.x / spacing).ceil() * spacing;
@@ -85,7 +89,7 @@ impl CanvasRenderer {
     }
 
     pub fn draw_fractal_lines(
-        &self,
+        &mut self,
         camera: &Camera,
         canvas_rect: Rect,
         points: &[Pos2],
@@ -99,6 +103,22 @@ impl CanvasRenderer {
 
         let center = canvas_rect.center();
         let viewport = camera.visible_world_rect(canvas_rect, center);
+
+        let needs_rebuild = self.mesh_dirty
+            || self.cached_lines.as_ref().map_or(true, |c| {
+                c.camera_pos != camera.position
+                    || c.camera_zoom != camera.zoom
+                    || c.canvas_center != center
+                    || c.points_len != points.len()
+                    || c.lines_len != lines.len()
+            });
+
+        if let Some(cached) = &self.cached_lines {
+            if !needs_rebuild {
+                shapes.push(Shape::Mesh(cached.mesh.clone()));
+                return;
+            }
+        }
 
         let half_width = 0.75;
         let mut mesh = Mesh::default();
@@ -143,7 +163,17 @@ impl CanvasRenderer {
         }
 
         if !mesh.vertices.is_empty() {
-            shapes.push(Shape::Mesh(Arc::new(mesh)));
+            let arc = Arc::new(mesh);
+            self.cached_lines = Some(CachedMesh {
+                mesh: arc.clone(),
+                camera_pos: camera.position,
+                camera_zoom: camera.zoom,
+                canvas_center: center,
+                points_len: points.len(),
+                lines_len: lines.len(),
+            });
+            self.mesh_dirty = false;
+            shapes.push(Shape::Mesh(arc));
         }
     }
 

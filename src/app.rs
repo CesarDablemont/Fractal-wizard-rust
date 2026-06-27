@@ -3,6 +3,7 @@ use crate::editors::figure::FigureEditor;
 use crate::editors::pattern::PatternEditor;
 use crate::editors::initial::InitialEditor;
 use crate::editors::fractal::FractalEditor;
+use std::time::Instant;
 
 #[derive(PartialEq)]
 enum ActiveEditor {
@@ -18,6 +19,8 @@ pub struct FractalWizardApp {
     pattern_editor: PatternEditor,
     initial_editor: InitialEditor,
     fractal_editor: FractalEditor,
+    last_frame: Instant,
+    fps: f32,
 }
 
 impl Default for FractalWizardApp {
@@ -28,6 +31,8 @@ impl Default for FractalWizardApp {
             pattern_editor: PatternEditor::default(),
             initial_editor: InitialEditor::default(),
             fractal_editor: FractalEditor::default(),
+            last_frame: Instant::now(),
+            fps: 60.0,
         }
     }
 }
@@ -35,6 +40,11 @@ impl Default for FractalWizardApp {
 impl eframe::App for FractalWizardApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(1.5);
+
+        let now = Instant::now();
+        let dt = (now - self.last_frame).as_secs_f32();
+        self.last_frame = now;
+        self.fps = if dt > 0.0 { 1.0 / dt } else { 60.0 };
 
         egui::TopBottomPanel::top("main_toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -45,11 +55,10 @@ impl eframe::App for FractalWizardApp {
                 ui.selectable_value(&mut self.active, ActiveEditor::Figure, "📐 Figure");
                 ui.selectable_value(&mut self.active, ActiveEditor::Pattern, "🔷 Pattern");
                 ui.selectable_value(&mut self.active, ActiveEditor::Initial, "🔰 Initial");
-                ui.selectable_value(&mut self.active, ActiveEditor::Fractal, "❄️ Fractale");
+                ui.selectable_value(&mut self.active, ActiveEditor::Fractal, "💠 Fractale");
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let reps = ui.input(|i| i.predicted_dt);
-                    ui.label(format!("{:.0} FPS", 1.0 / reps));
+                    ui.label(format!("{:.0} FPS", self.fps));
                 });
             });
         });
@@ -67,11 +76,9 @@ impl eframe::App for FractalWizardApp {
         }
         if let Some(data) = self.figure_editor.transfer_to_pattern.take() {
             self.pattern_editor.receive_figure = Some(data);
-            self.active = ActiveEditor::Pattern;
         }
         if let Some(data) = self.figure_editor.transfer_to_initial.take() {
             self.initial_editor.receive_figure = Some(data);
-            self.active = ActiveEditor::Initial;
         }
         if let Some(data) = self.pattern_editor.transfer_patterns.take() {
             self.fractal_editor.import_pattern_data(data);

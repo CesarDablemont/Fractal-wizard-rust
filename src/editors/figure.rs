@@ -216,27 +216,23 @@ impl FigureEditor {
                     self.state = EditorState::Point;
                 }
                 ui.separator();
-                            if ui.button("➡ Envoyer à Fractale").clicked() {
+                            if ui.button("➡ Envoyer").clicked() {
                         self.transfer_shape = Some(shape.to_shape_wrapper());
-                    }
-                    let pts = shape.points().to_vec();
-                    let lns = match shape {
-                        FigureShape::Polygon(_) => {
-                            if pts.len() >= 2 {
-                                let mut lines: Vec<Line> = (0..pts.len() - 1).map(|i| [i, i + 1]).collect();
-                                if pts.len() > 2 {
-                                    lines.push([pts.len() - 1, 0]);
-                                }
-                                lines
-                            } else { Vec::new() }
-                        }
-                        FigureShape::FreeLinear(s) => s.lines().to_vec(),
-                    };
-                    if ui.button("➡ Envoyer à Pattern").clicked() {
+                        let pts = shape.points().to_vec();
+                        let lns = match shape {
+                            FigureShape::Polygon(_) => {
+                                if pts.len() >= 2 {
+                                    let mut lines: Vec<Line> = (0..pts.len() - 1).map(|i| [i, i + 1]).collect();
+                                    if pts.len() > 2 {
+                                        lines.push([pts.len() - 1, 0]);
+                                    }
+                                    lines
+                                } else { Vec::new() }
+                            }
+                            FigureShape::FreeLinear(s) => s.lines().to_vec(),
+                        };
                         self.transfer_to_pattern = Some((pts.clone(), lns.clone()));
-                    }
-                    if ui.button("➡ Envoyer à Initial").clicked() {
-                        self.transfer_to_initial = Some((pts.clone(), lns.clone()));
+                        self.transfer_to_initial = Some((pts, lns));
                     }
             }
 

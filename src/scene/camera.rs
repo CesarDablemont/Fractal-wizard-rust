@@ -18,7 +18,7 @@ impl Default for Camera {
     fn default() -> Self {
         Self {
             position: Vec2::ZERO,
-            zoom: 1.0,
+            zoom: 10.0,
             grid_spacing: 50.0,
             display_grid: true,
             magnetism: false,
@@ -73,11 +73,22 @@ impl Camera {
         Vec2::new(screen_delta.x / self.zoom, -screen_delta.y / self.zoom)
     }
 
+    pub fn choose_grid_spacing(zoom: f32) -> f32 {
+        let target = 50.0 / zoom;
+        let candidates = [5.0, 25.0, 100.0, 500.0, 2500.0, 12500.0];
+        candidates.into_iter().min_by(|a, b| {
+            let da = (a - target).abs();
+            let db = (b - target).abs();
+            da.partial_cmp(&db).unwrap()
+        }).unwrap_or(25.0)
+    }
+
     pub fn snap(&self, world_pos: Pos2) -> Pos2 {
         if self.magnetism {
+            let spacing = Self::choose_grid_spacing(self.zoom);
             Pos2::new(
-                (world_pos.x / self.grid_spacing).round() * self.grid_spacing,
-                (world_pos.y / self.grid_spacing).round() * self.grid_spacing,
+                (world_pos.x / spacing).round() * spacing,
+                (world_pos.y / spacing).round() * spacing,
             )
         } else {
             world_pos
