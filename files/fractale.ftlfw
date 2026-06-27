@@ -1,0 +1,67 @@
+{
+  "shape": {
+    "type": "Polygon",
+    "points": [
+      [
+        -0.0,
+        150.0
+      ],
+      [
+        -100.0,
+        -50.0
+      ],
+      [
+        100.0,
+        -50.0
+      ]
+    ]
+  },
+  "pattern": {
+    "display_parent": false,
+    "patterns": [
+      {
+        "translate": [
+          -50.0,
+          -25.0
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      },
+      {
+        "translate": [
+          50.0,
+          -25.0
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      },
+      {
+        "translate": [
+          0.0,
+          75.0
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      }
+    ]
+  },
+  "initial": [
+    {
+      "translate": [
+        0.0,
+        0.0
+      ],
+      "rotate": 0.0,
+      "scale": 1.0
+    }
+  ],
+  "iterations": 3,
+  "regroup": false,
+  "add_delta": false,
+  "delta": [
+    0.0,
+    0.0
+  ],
+  "delta_intervals": 1000,
+  "display_parent": false
+}

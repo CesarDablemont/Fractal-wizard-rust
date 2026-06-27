@@ -1,0 +1,29 @@
+{
+  "display_parent": false,
+  "patterns": [
+    {
+      "translate": [
+        -50.0,
+        -25.0
+      ],
+      "rotate": 0.0,
+      "scale": 2.0
+    },
+    {
+      "translate": [
+        50.0,
+        -25.0
+      ],
+      "rotate": 0.0,
+      "scale": 2.0
+    },
+    {
+      "translate": [
+        0.0,
+        75.0
+      ],
+      "rotate": 0.0,
+      "scale": 2.0
+    }
+  ]
+}

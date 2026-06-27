@@ -1,0 +1,52 @@
+use eframe::egui::Pos2;
+use crate::shapes::shape::Shape;
+use crate::types::Line;
+
+#[derive(Clone, Debug)]
+pub struct Polygon {
+    points: Vec<Pos2>,
+    lines: Vec<Line>,
+}
+
+impl Polygon {
+    pub fn new() -> Self {
+        Self {
+            points: Vec::new(),
+            lines: Vec::new(),
+        }
+    }
+
+    fn rebuild_lines(&mut self) {
+        if self.points.len() < 2 {
+            self.lines.clear();
+            return;
+        }
+        self.lines = (0..self.points.len() - 1)
+            .map(|i| [i, i + 1])
+            .collect();
+        if self.points.len() > 2 {
+            self.lines.push([self.points.len() - 1, 0]);
+        }
+    }
+}
+
+impl Shape for Polygon {
+    fn name(&self) -> &'static str { "cPolygon" }
+    fn points(&self) -> &[Pos2] { &self.points }
+    fn points_mut(&mut self) -> &mut Vec<Pos2> { &mut self.points }
+    fn lines(&self) -> &[Line] { &self.lines }
+    fn set_lines(&mut self, lines: Vec<Line>) { self.lines = lines; }
+    fn is_closed(&self) -> bool { true }
+
+    fn add_point(&mut self, p: Pos2) {
+        self.points.push(p);
+        self.rebuild_lines();
+    }
+
+    fn remove_point(&mut self, idx: usize) {
+        if idx < self.points.len() {
+            self.points.remove(idx);
+            self.rebuild_lines();
+        }
+    }
+}
