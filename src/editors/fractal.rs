@@ -110,6 +110,20 @@ impl ShapeWrapper {
             ShapeWrapper::FreeLinear(p) => p.get_lines(t, r, s),
         }
     }
+
+    pub fn name(&self) -> &str {
+        match self {
+            ShapeWrapper::Polygon(_) => "Polygone",
+            ShapeWrapper::FreeLinear(_) => "Forme libre",
+        }
+    }
+
+    pub fn point_count(&self) -> usize {
+        match self {
+            ShapeWrapper::Polygon(p) => p.points().len(),
+            ShapeWrapper::FreeLinear(p) => p.points().len(),
+        }
+    }
 }
 
 impl Default for FractalEditor {
@@ -203,6 +217,7 @@ impl FractalEditor {
             shape.get_lines(t, r, s)
         };
 
+        let start = std::time::Instant::now();
         let result = generator::generate_fractal(
             &get_points,
             &get_lines,
@@ -213,6 +228,9 @@ impl FractalEditor {
             self.display_parent,
             if self.add_delta { self.delta.x.abs() } else { 0.0 },
         );
+        let elapsed = start.elapsed();
+
+        self.message = Some(format!("Générée en {:.2?}", elapsed));
 
         self.fractal = Some(result);
         self.canvas_renderer.rebuild_chunks = true;
@@ -717,7 +735,11 @@ impl FractalEditor {
 
             ui.separator();
             ui.label("Données d'entrée:");
-            ui.label(format!("Shape: {}", if self.shape.is_some() { "✓" } else { "✗" }));
+            if let Some(ref s) = self.shape {
+                ui.label(format!("Shape: {} ({} pts)", s.name(), s.point_count()));
+            } else {
+                ui.label("Shape: (aucune)");
+            }
             ui.label(format!("Patterns: {}", self.pattern_data.len()));
             ui.label(format!("Figures initiales: {}", self.initial_data.len()));
         }
