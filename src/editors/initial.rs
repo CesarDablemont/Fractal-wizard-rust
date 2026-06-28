@@ -66,8 +66,13 @@ impl Default for InitialEditor {
 impl InitialEditor {
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
-            self.model_points = pts;
+            self.model_points = pts.clone();
             self.model_lines = lns;
+            self.shapes = pts.iter().map(|&p| ShapePatternData {
+                translate: p,
+                rotate: 0.0,
+                scale: 1.0,
+            }).collect();
         }
 
         egui::TopBottomPanel::top("initial_editor_menu").show(ctx, |ui| {

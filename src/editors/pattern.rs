@@ -80,6 +80,17 @@ impl PatternEditor {
             self.model_lines = lns;
         }
 
+        if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+            let mut to_remove: Vec<usize> = self.selected.clone();
+            to_remove.sort_unstable_by(|a, b| b.cmp(a));
+            for &i in &to_remove {
+                if i < self.patterns.len() {
+                    self.patterns.remove(i);
+                }
+            }
+            self.selected.clear();
+        }
+
         egui::TopBottomPanel::top("pattern_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
         });

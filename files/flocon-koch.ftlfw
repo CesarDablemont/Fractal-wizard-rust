@@ -1,0 +1,101 @@
+{
+  "shape": {
+    "type": "FreeLinear",
+    "points": [
+      [
+        -15.0,
+        0.0
+      ],
+      [
+        15.0,
+        -0.0
+      ]
+    ],
+    "lines": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        1
+      ]
+    ]
+  },
+  "pattern": {
+    "display_parent": false,
+    "patterns": [
+      {
+        "translate": [
+          10.0,
+          0.0
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -10.0,
+          0.0
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -2.5,
+          4.33
+        ],
+        "rotate": 1.0471976,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          2.5,
+          4.33
+        ],
+        "rotate": -1.0471976,
+        "scale": 3.0
+      }
+    ]
+  },
+  "initial": [
+    {
+      "translate": [
+        -7.5,
+        8.0
+      ],
+      "rotate": 1.0471976,
+      "scale": 1.0
+    },
+    {
+      "translate": [
+        7.5,
+        8.0
+      ],
+      "rotate": -1.0471976,
+      "scale": 1.0
+    },
+    {
+      "translate": [
+        0.0,
+        -5.0
+      ],
+      "rotate": 3.1415927,
+      "scale": 1.0
+    }
+  ],
+  "iterations": 6,
+  "regroup": false,
+  "add_delta": false,
+  "delta": [
+    0.0,
+    0.0
+  ],
+  "delta_intervals": 1000,
+  "display_parent": false
+}

@@ -191,6 +191,8 @@ impl FractalEditor {
         };
         let mut initial_scaled = self.initial_data.clone();
         for s in &mut initial_scaled {
+            s.translate.x *= pre_scale;
+            s.translate.y *= pre_scale;
             s.scale *= pre_scale;
         }
 
@@ -226,6 +228,15 @@ impl FractalEditor {
     }
 
     pub fn import_shape(&mut self, wrapper: ShapeWrapper) {
+        let pts = match &wrapper {
+            ShapeWrapper::Polygon(p) => p.points().to_vec(),
+            ShapeWrapper::FreeLinear(p) => p.points().to_vec(),
+        };
+        self.initial_data = pts.iter().map(|&p| ShapePatternData {
+            translate: p,
+            rotate: 0.0,
+            scale: 1.0,
+        }).collect();
         self.shape = Some(wrapper);
         self.canvas_renderer.rebuild_chunks = true;
     }
@@ -298,6 +309,7 @@ impl FractalEditor {
                 ShapeWrapper::FreeLinear(s)
             }
         });
+        self.canvas_renderer.rebuild_chunks = true;
     }
 
     pub fn run_simulation(&mut self, start_idx: usize) {
