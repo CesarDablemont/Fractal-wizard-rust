@@ -1,10 +1,12 @@
 use rfd::FileDialog;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-const DEFAULT_DIR: &str = "/home/cesar/Bureau/Projets/fractal-wizard/files";
+const DEFAULT_DIR: &str = "files";
 
-fn default_dir() -> &'static Path {
-    Path::new(DEFAULT_DIR)
+fn default_dir() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(DEFAULT_DIR)
 }
 
 fn clean_json(input: &str) -> String {

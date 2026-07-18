@@ -45,7 +45,6 @@ struct InitialFileWrap {
 }
 
 pub struct FractalEditor {
-    pub is_open: bool,
     pub file_path: Option<String>,
 
     pub shape: Option<ShapeWrapper>,
@@ -63,7 +62,6 @@ pub struct FractalEditor {
     pub max_steps: u64,
     pub allow_min: bool,
     pub allow_max: bool,
-    pub start_point: Option<usize>,
 
     pub global_heatmap: Vec<f32>,
     pub individual_heatmap: Vec<f32>,
@@ -129,7 +127,6 @@ impl ShapeWrapper {
 impl Default for FractalEditor {
     fn default() -> Self {
         Self {
-            is_open: true,
             file_path: None,
             shape: None,
             pattern_data: Vec::new(),
@@ -144,7 +141,6 @@ impl Default for FractalEditor {
             max_steps: 5000,
             allow_min: true,
             allow_max: true,
-            start_point: None,
             global_heatmap: Vec::new(),
             individual_heatmap: Vec::new(),
             render_mode: RenderMode::Normal,
@@ -176,20 +172,6 @@ impl FractalEditor {
 
     fn fractal_lines(&self) -> &[Line] {
         self.fractal.as_ref().map(|f| f.lines.as_slice()).unwrap_or(&[])
-    }
-
-    fn fractal_point_scale(&self) -> &[f32] {
-        self.fractal.as_ref().map(|f| f.point_scale.as_slice()).unwrap_or(&[])
-    }
-
-    pub fn set_shape_from_polygon(&mut self, poly: Polygon) {
-        self.shape = Some(ShapeWrapper::Polygon(poly));
-        self.canvas_renderer.rebuild_chunks = true;
-    }
-
-    pub fn set_shape_from_free_linear(&mut self, shape: FreeLinearShape) {
-        self.shape = Some(ShapeWrapper::FreeLinear(shape));
-        self.canvas_renderer.rebuild_chunks = true;
     }
 
     pub fn generate(&mut self) {
@@ -310,11 +292,8 @@ impl FractalEditor {
     fn load_shape_from_data(&mut self, data: &FigureShapeData) {
         self.shape = Some(match data.r#type.as_str() {
             "Polygon" | "cPolygon" => {
-                let mut p = Polygon::new();
-                for pt in &data.points {
-                    p.add_point(Pos2::new(pt[0], pt[1]));
-                }
-                ShapeWrapper::Polygon(p)
+                let pts = data.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
+                ShapeWrapper::Polygon(Polygon::from_points(pts))
             }
             _ => {
                 let mut s = FreeLinearShape::new();

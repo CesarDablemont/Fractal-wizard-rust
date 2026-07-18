@@ -17,7 +17,6 @@ struct FigureData {
 }
 
 pub struct FigureEditor {
-    pub is_open: bool,
     pub file_path: Option<String>,
     pub transfer_shape: Option<super::fractal::ShapeWrapper>,
     pub transfer_to_pattern: Option<(Vec<Pos2>, Vec<Line>)>,
@@ -50,13 +49,6 @@ impl FigureShape {
         match self {
             FigureShape::Polygon(p) => p.points(),
             FigureShape::FreeLinear(p) => p.points(),
-        }
-    }
-
-    fn points_mut(&mut self) -> &mut Vec<Pos2> {
-        match self {
-            FigureShape::Polygon(p) => p.points_mut(),
-            FigureShape::FreeLinear(p) => p.points_mut(),
         }
     }
 
@@ -95,7 +87,6 @@ impl FigureShape {
 impl Default for FigureEditor {
     fn default() -> Self {
         Self {
-            is_open: true,
             file_path: None,
             transfer_shape: None,
             transfer_to_pattern: None,
@@ -145,11 +136,8 @@ impl FigureEditor {
                                 self.file_path = Some(path.display().to_string());
                                 self.shape = Some(match data.r#type.as_str() {
                                     "Polygon" | "cPolygon" => {
-                                        let mut p = Polygon::new();
-                                        for pt in &data.points {
-                                            p.add_point(Pos2::new(pt[0], pt[1]));
-                                        }
-                                        FigureShape::Polygon(p)
+                                        let pts = data.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
+                                        FigureShape::Polygon(Polygon::from_points(pts))
                                     }
                                     _ => {
                                         let mut s = FreeLinearShape::new();

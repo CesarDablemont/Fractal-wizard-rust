@@ -2,7 +2,7 @@ use eframe::egui::Pos2;
 use serde::{Deserialize, Serialize};
 
 pub mod pos2_serde {
-    use eframe::egui::Pos2;
+use eframe::egui::Pos2;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
     pub fn serialize<S>(p: &Pos2, serializer: S) -> Result<S::Ok, S::Error>
@@ -69,7 +69,6 @@ pub enum EditorState {
     Mouse,
     Point,
     SelectPointSimulation,
-    Place,
     Add,
 }
 

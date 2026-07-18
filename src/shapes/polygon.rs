@@ -16,6 +16,20 @@ impl Polygon {
         }
     }
 
+    pub fn from_points(pts: Vec<Pos2>) -> Self {
+        let n = pts.len();
+        let lines = if n < 2 {
+            Vec::new()
+        } else {
+            let mut l: Vec<Line> = (0..n - 1).map(|i| [i, i + 1]).collect();
+            if n > 2 {
+                l.push([n - 1, 0]);
+            }
+            l
+        };
+        Self { points: pts, lines }
+    }
+
     fn rebuild_lines(&mut self) {
         if self.points.len() < 2 {
             self.lines.clear();

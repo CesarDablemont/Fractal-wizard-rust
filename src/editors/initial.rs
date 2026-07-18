@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
 use crate::shapes::shape::apply_transform;
-use crate::types::{EditorState, Line, ShapePatternData};
+use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 
 #[derive(Serialize, Deserialize)]
@@ -15,9 +15,7 @@ struct ModelData {
 }
 
 pub struct InitialEditor {
-    pub is_open: bool,
     pub shapes: Vec<ShapePatternData>,
-    pub display_parent: bool,
 
     pub transfer_shapes: Option<Vec<ShapePatternData>>,
     pub receive_figure: Option<(Vec<Pos2>, Vec<Line>)>,
@@ -27,7 +25,6 @@ pub struct InitialEditor {
 
     camera: Camera,
     canvas_renderer: CanvasRenderer,
-    state: EditorState,
     selected: Vec<usize>,
     message: Option<String>,
 }
@@ -47,16 +44,13 @@ impl Default for InitialEditor {
     fn default() -> Self {
         let (mp, ml) = default_model();
         Self {
-            is_open: true,
             shapes: Vec::new(),
-            display_parent: false,
             transfer_shapes: None,
             receive_figure: None,
             model_points: mp,
             model_lines: ml,
             camera: Camera::default(),
             canvas_renderer: CanvasRenderer::new(),
-            state: EditorState::Mouse,
             selected: Vec::new(),
             message: None,
         }

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use eframe::egui::{Pos2, Rect, Vec2};
 use crate::scene::camera::Camera;
 

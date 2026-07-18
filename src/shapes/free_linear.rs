@@ -21,12 +21,6 @@ impl FreeLinearShape {
             self.lines.push([a, b]);
         }
     }
-
-    pub fn connect_start_end(&mut self) {
-        if self.points.len() >= 2 {
-            self.lines.push([self.points.len() - 1, self.points.len() - 2]);
-        }
-    }
 }
 
 impl Shape for FreeLinearShape {

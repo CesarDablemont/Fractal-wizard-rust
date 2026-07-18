@@ -1,6 +1,7 @@
 use eframe::egui::{pos2, Pos2, Vec2};
 use crate::types::Line;
 
+#[allow(dead_code)]
 pub trait Shape {
     fn name(&self) -> &'static str;
     fn points(&self) -> &[Pos2];
