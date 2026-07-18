@@ -179,10 +179,10 @@ impl PatternEditor {
                     }
                     ui.close_menu();
                 }
-                ui.checkbox(&mut self.show_origin_figure, "Afficher la figure d'origine");
             });
 
             ui.menu_button("Options", |ui| {
+                ui.checkbox(&mut self.show_origin_figure, "Afficher la figure d'origine");
                 ui.checkbox(&mut self.show_gizmo, "Gizmo");
                 ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
             });
@@ -305,7 +305,7 @@ impl PatternEditor {
             self.render_shape_at(
                 &self.camera, canvas_center,
                 Pos2::ZERO, 0.0, 1.0,
-                Color32::from_rgba_premultiplied(255, 255, 0, 80),
+                Color32::from_rgba_premultiplied(180, 180, 180, 100),
                 &mut shapes,
             );
         }
