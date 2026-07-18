@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
+use eframe::egui::{self, pos2, Color32, Pos2, Shape, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
@@ -69,11 +69,11 @@ impl InitialEditor {
         if let Some((pts, lns)) = self.receive_figure.take() {
             self.model_points = pts.clone();
             self.model_lines = lns;
-            self.shapes = pts.iter().map(|&p| ShapePatternData {
-                translate: p,
+            self.shapes = vec![ShapePatternData {
+                translate: pos2(0.0, 0.0),
                 rotate: 0.0,
                 scale: 1.0,
-            }).collect();
+            }];
         }
 
         egui::TopBottomPanel::top("initial_editor_menu").show(ctx, |ui| {

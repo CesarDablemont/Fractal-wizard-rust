@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align2, Color32, FontId, Pos2, Shape, Vec2};
+use eframe::egui::{self, Align2, Color32, FontId, pos2, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::fractal::generator::{self, FractalResult};
 use crate::fractal::random_walk::{self, RandomWalkStats};
@@ -228,15 +228,11 @@ impl FractalEditor {
     }
 
     pub fn import_shape(&mut self, wrapper: ShapeWrapper) {
-        let pts = match &wrapper {
-            ShapeWrapper::Polygon(p) => p.points().to_vec(),
-            ShapeWrapper::FreeLinear(p) => p.points().to_vec(),
-        };
-        self.initial_data = pts.iter().map(|&p| ShapePatternData {
-            translate: p,
+        self.initial_data = vec![ShapePatternData {
+            translate: pos2(0.0, 0.0),
             rotate: 0.0,
             scale: 1.0,
-        }).collect();
+        }];
         self.shape = Some(wrapper);
         self.canvas_renderer.rebuild_chunks = true;
     }
