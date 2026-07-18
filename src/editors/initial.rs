@@ -5,6 +5,7 @@ use crate::scene::canvas::CanvasRenderer;
 use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
+use crate::gizmo::{self, GizmoHit};
 
 #[derive(Serialize, Deserialize)]
 struct ModelData {
@@ -25,6 +26,9 @@ pub struct InitialEditor {
 
     camera: Camera,
     canvas_renderer: CanvasRenderer,
+    gizmo_hit: GizmoHit,
+    gizmo_dragging: bool,
+    show_gizmo: bool,
     selected: Vec<usize>,
     message: Option<String>,
 }
@@ -51,6 +55,9 @@ impl Default for InitialEditor {
             model_lines: ml,
             camera: Camera::default(),
             canvas_renderer: CanvasRenderer::new(),
+            gizmo_hit: GizmoHit::None,
+            gizmo_dragging: false,
+            show_gizmo: true,
             selected: Vec::new(),
             message: None,
         }
@@ -147,6 +154,11 @@ impl InitialEditor {
                     }
                     ui.close_menu();
                 }
+            });
+
+            ui.menu_button("Options", |ui| {
+                ui.checkbox(&mut self.show_gizmo, "Gizmo");
+                ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
             });
 
             if !self.shapes.is_empty() {
@@ -274,25 +286,84 @@ impl InitialEditor {
             );
         }
 
+        if self.show_gizmo && !self.gizmo_dragging {
+            if let Some(&idx) = self.selected.first() {
+                if idx < self.shapes.len() {
+                    let pos = self.shapes[idx].translate;
+                    if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
+                        self.gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, &self.camera, canvas_center);
+                    }
+                    gizmo::Gizmo::draw(pos, &self.camera, canvas_center, self.gizmo_hit, &mut shapes);
+                }
+            }
+        }
+
         // Canvas interaction
         let half = self.camera.point_size;
 
         if response.clicked_by(egui::PointerButton::Primary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                let hit = self.shapes.iter().position(|p| {
-                    let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                    let d = screen - mouse;
-                    d.x.abs() <= half && d.y.abs() <= half
-                });
-                if let Some(idx) = hit {
-                    self.selected = vec![idx];
+                if self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+                    // gizmo click handled via drag
                 } else {
-                    self.selected.clear();
+                    let hit = self.shapes.iter().position(|p| {
+                        let screen = self.camera.world_to_screen(p.translate, canvas_center);
+                        let d = screen - mouse;
+                        d.x.abs() <= half && d.y.abs() <= half
+                    });
+                    if let Some(idx) = hit {
+                        self.selected = vec![idx];
+                    } else {
+                        self.selected.clear();
+                    }
                 }
             }
         }
 
-        if let Some(&idx) = self.selected.first() {
+        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
+        let pointer_released = ui.input(|i| i.pointer.any_released());
+
+        if self.gizmo_dragging {
+            if pointer_released {
+                self.gizmo_dragging = false;
+                if self.camera.magnetism {
+                    if let Some(&idx) = self.selected.first() {
+                        if idx < self.shapes.len() {
+                            let s = &self.shapes[idx];
+                            let spacing = crate::scene::camera::Camera::choose_grid_spacing(self.camera.zoom);
+                            let scale = 1.0 / s.scale;
+                            let mut best_dist = f32::MAX;
+                            let mut best_offset = Vec2::ZERO;
+                            for &mp in &self.model_points {
+                                let tp = apply_transform(mp, s.translate, s.rotate, Vec2::new(scale, scale));
+                                let sx = (tp.x / spacing).round() * spacing;
+                                let sy = (tp.y / spacing).round() * spacing;
+                                let dx = sx - tp.x;
+                                let dy = sy - tp.y;
+                                let d = dx * dx + dy * dy;
+                                if d < best_dist {
+                                    best_dist = d;
+                                    best_offset = Vec2::new(dx, dy);
+                                }
+                            }
+                            self.shapes[idx].translate += best_offset;
+                        }
+                    }
+                }
+            } else {
+                let delta = ui.input(|i| i.pointer.delta());
+                if delta != Vec2::ZERO {
+                    let world_delta = gizmo::Gizmo::handle_drag(self.gizmo_hit, delta, &self.camera);
+                    if let Some(&idx) = self.selected.first() {
+                        if idx < self.shapes.len() {
+                            self.shapes[idx].translate += world_delta;
+                        }
+                    }
+                }
+            }
+        } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+            self.gizmo_dragging = true;
+        } else if let Some(&idx) = self.selected.first() {
             if response.dragged_by(egui::PointerButton::Primary) && idx < self.shapes.len() {
                 let delta = ui.input(|i| i.pointer.delta());
                 if delta != Vec2::ZERO {

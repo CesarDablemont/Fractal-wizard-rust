@@ -1,74 +1,111 @@
-#![allow(dead_code)]
-use eframe::egui::{Pos2, Rect, Vec2};
+use eframe::egui::{Pos2, Rect, Shape, Stroke, Vec2};
 use crate::scene::camera::Camera;
 
-pub struct ArrowGizmo {
-    pub position: Pos2,
-    pub size: f32,
-    pub dragging_all: bool,
-    pub dragging_x: bool,
-    pub dragging_y: bool,
-}
+const ARROW_LENGTH: f32 = 80.0;
+const ARROW_HEAD: f32 = 10.0;
+const HIT_WIDTH: f32 = 8.0;
+const CENTER_RADIUS: f32 = 8.0;
 
-impl Default for ArrowGizmo {
-    fn default() -> Self {
-        Self {
-            position: Pos2::ZERO,
-            size: 80.0,
-            dragging_all: false,
-            dragging_x: false,
-            dragging_y: false,
-        }
-    }
-}
-
-impl ArrowGizmo {
-    pub fn set_position(&mut self, pos: Pos2) {
-        self.position = pos;
-    }
-
-    pub fn x_arrow_rect(&self, camera: &Camera, canvas_center: Pos2) -> Rect {
-        let origin = camera.world_to_screen(self.position, canvas_center);
-        Rect::from_min_max(
-            origin - Vec2::new(0.0, 4.0),
-            origin + Vec2::new(self.size, 4.0),
-        )
-    }
-
-    pub fn y_arrow_rect(&self, camera: &Camera, canvas_center: Pos2) -> Rect {
-        let origin = camera.world_to_screen(self.position, canvas_center);
-        Rect::from_min_max(
-            origin - Vec2::new(4.0, 0.0),
-            origin + Vec2::new(4.0, self.size),
-        )
-    }
-
-    pub fn all_rect(&self, camera: &Camera, canvas_center: Pos2) -> Rect {
-        let origin = camera.world_to_screen(self.position, canvas_center);
-        Rect::from_min_max(
-            origin - Vec2::splat(8.0),
-            origin + Vec2::splat(8.0),
-        )
-    }
-
-    pub fn is_hovered(&self, mouse: Pos2, camera: &Camera, canvas_center: Pos2) -> GizmoHit {
-        if self.all_rect(camera, canvas_center).contains(mouse) {
-            return GizmoHit::All;
-        }
-        if self.x_arrow_rect(camera, canvas_center).contains(mouse) {
-            return GizmoHit::X;
-        }
-        if self.y_arrow_rect(camera, canvas_center).contains(mouse) {
-            return GizmoHit::Y;
-        }
-        GizmoHit::None
-    }
-}
+const COLOR_X: eframe::egui::Color32 = eframe::egui::Color32::from_rgb(220, 50, 50);
+const COLOR_Y: eframe::egui::Color32 = eframe::egui::Color32::from_rgb(50, 200, 50);
+const COLOR_CENTER: eframe::egui::Color32 = eframe::egui::Color32::from_rgb(80, 80, 220);
+const COLOR_HOVER: eframe::egui::Color32 = eframe::egui::Color32::WHITE;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum GizmoHit {
     None,
-    All,
     X,
     Y,
+    Center,
+}
+
+pub struct Gizmo;
+
+impl Gizmo {
+    pub fn draw(
+        world_pos: Pos2,
+        camera: &Camera,
+        canvas_center: Pos2,
+        hovered: GizmoHit,
+        shapes: &mut Vec<Shape>,
+    ) {
+        let origin = camera.world_to_screen(world_pos, canvas_center);
+        let stroke_w = 2.0;
+
+        let x_color = if hovered == GizmoHit::X { COLOR_HOVER } else { COLOR_X };
+        let y_color = if hovered == GizmoHit::Y { COLOR_HOVER } else { COLOR_Y };
+        let c_color = if hovered == GizmoHit::Center { COLOR_HOVER } else { COLOR_CENTER };
+
+        let x_end = origin + Vec2::new(ARROW_LENGTH, 0.0);
+        let y_end = origin + Vec2::new(0.0, -ARROW_LENGTH);
+
+        shapes.push(Shape::line_segment(
+            [origin, x_end],
+            Stroke::new(stroke_w, x_color),
+        ));
+        shapes.push(Shape::line_segment(
+            [x_end + Vec2::new(-ARROW_HEAD, -ARROW_HEAD * 0.5), x_end],
+            Stroke::new(stroke_w, x_color),
+        ));
+        shapes.push(Shape::line_segment(
+            [x_end, x_end + Vec2::new(-ARROW_HEAD, ARROW_HEAD * 0.5)],
+            Stroke::new(stroke_w, x_color),
+        ));
+
+        shapes.push(Shape::line_segment(
+            [origin, y_end],
+            Stroke::new(stroke_w, y_color),
+        ));
+        shapes.push(Shape::line_segment(
+            [y_end + Vec2::new(-ARROW_HEAD * 0.5, ARROW_HEAD), y_end],
+            Stroke::new(stroke_w, y_color),
+        ));
+        shapes.push(Shape::line_segment(
+            [y_end, y_end + Vec2::new(ARROW_HEAD * 0.5, ARROW_HEAD)],
+            Stroke::new(stroke_w, y_color),
+        ));
+
+        shapes.push(Shape::circle_filled(origin, CENTER_RADIUS, c_color));
+    }
+
+    pub fn hit_test(mouse: Pos2, world_pos: Pos2, camera: &Camera, canvas_center: Pos2) -> GizmoHit {
+        let origin = camera.world_to_screen(world_pos, canvas_center);
+
+        let to_center = mouse - origin;
+        if to_center.length() <= CENTER_RADIUS + HIT_WIDTH {
+            return GizmoHit::Center;
+        }
+
+        let x_rect = Rect::from_min_size(
+            origin - Vec2::new(0.0, HIT_WIDTH),
+            Vec2::new(ARROW_LENGTH, HIT_WIDTH * 2.0),
+        );
+        if x_rect.contains(mouse) {
+            return GizmoHit::X;
+        }
+
+        let y_rect = Rect::from_min_size(
+            origin + Vec2::new(-HIT_WIDTH, -ARROW_LENGTH),
+            Vec2::new(HIT_WIDTH * 2.0, ARROW_LENGTH),
+        );
+        if y_rect.contains(mouse) {
+            return GizmoHit::Y;
+        }
+
+        GizmoHit::None
+    }
+
+    pub fn handle_drag(
+        hit: GizmoHit,
+        screen_delta: Vec2,
+        camera: &Camera,
+    ) -> Vec2 {
+        let world = camera.screen_delta_to_world(screen_delta);
+        match hit {
+            GizmoHit::X => Vec2::new(world.x, 0.0),
+            GizmoHit::Y => Vec2::new(0.0, world.y),
+            GizmoHit::Center => world,
+            GizmoHit::None => Vec2::ZERO,
+        }
+    }
 }

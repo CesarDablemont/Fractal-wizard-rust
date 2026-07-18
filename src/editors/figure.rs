@@ -7,6 +7,7 @@ use crate::shapes::free_linear::FreeLinearShape;
 use crate::shapes::shape::Shape as ShapeTrait;
 use crate::types::{EditorState, FigureType, Line};
 use crate::file_io;
+use crate::gizmo::{self, GizmoHit};
 
 #[derive(Serialize, Deserialize)]
 struct FigureData {
@@ -28,6 +29,9 @@ pub struct FigureEditor {
     state: EditorState,
     figure_type: FigureType,
     selected_point: Option<usize>,
+    gizmo_hit: GizmoHit,
+    gizmo_dragging: bool,
+    show_gizmo: bool,
     message: Option<String>,
 }
 
@@ -82,6 +86,28 @@ impl FigureShape {
             dx <= half && dy <= half
         })
     }
+
+    fn center(&self) -> Option<Pos2> {
+        let pts = self.points();
+        if pts.is_empty() {
+            return None;
+        }
+        let sum = pts.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2());
+        Some((sum / pts.len() as f32).to_pos2())
+    }
+
+    fn translate_all(&mut self, delta: Vec2) {
+        for p in self.points_mut_iter() {
+            *p += delta;
+        }
+    }
+
+    fn points_mut_iter(&mut self) -> impl Iterator<Item = &mut Pos2> {
+        match self {
+            FigureShape::Polygon(p) => p.points_mut().iter_mut(),
+            FigureShape::FreeLinear(s) => s.points_mut().iter_mut(),
+        }
+    }
 }
 
 impl Default for FigureEditor {
@@ -97,6 +123,9 @@ impl Default for FigureEditor {
             state: EditorState::Mouse,
             figure_type: FigureType::Polygon,
             selected_point: None,
+            gizmo_hit: GizmoHit::None,
+            gizmo_dragging: false,
+            show_gizmo: true,
             message: None,
         }
     }
@@ -186,6 +215,7 @@ impl FigureEditor {
             ui.separator();
 
             ui.menu_button("Options", |ui| {
+                ui.checkbox(&mut self.show_gizmo, "Gizmo");
                 ui.checkbox(&mut self.camera.display_grid, "Grille");
                 if self.camera.display_grid {
                     ui.add(egui::Slider::new(&mut self.camera.grid_spacing, 10.0..=200.0).text("Espacement"));
@@ -249,12 +279,6 @@ impl FigureEditor {
             }
         }
 
-        if response.dragged_by(egui::PointerButton::Middle)
-            || (response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_point.is_none())
-        {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
-
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
 
@@ -299,10 +323,67 @@ impl FigureEditor {
             }
         }
 
-        if response.clicked_by(egui::PointerButton::Primary) {
+        if self.show_gizmo && !self.gizmo_dragging {
+            if let Some(ref shape) = self.shape {
+                if let Some(center) = shape.center() {
+                    if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
+                        self.gizmo_hit = gizmo::Gizmo::hit_test(mouse, center, &self.camera, canvas_center);
+                    }
+                    gizmo::Gizmo::draw(center, &self.camera, canvas_center, self.gizmo_hit, &mut shapes);
+                }
+            }
+        }
+
+        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
+        let pointer_released = ui.input(|i| i.pointer.any_released());
+
+        if self.gizmo_dragging {
+            if pointer_released {
+                self.gizmo_dragging = false;
+                if self.camera.magnetism {
+                    if let Some(ref mut shape) = self.shape {
+                        let pts = shape.points();
+                        if !pts.is_empty() {
+                            let spacing = crate::scene::camera::Camera::choose_grid_spacing(self.camera.zoom);
+                            let mut best_dist = f32::MAX;
+                            let mut best_offset = Vec2::ZERO;
+                            for &p in pts {
+                                let sx = (p.x / spacing).round() * spacing;
+                                let sy = (p.y / spacing).round() * spacing;
+                                let dx = sx - p.x;
+                                let dy = sy - p.y;
+                                let d = dx * dx + dy * dy;
+                                if d < best_dist {
+                                    best_dist = d;
+                                    best_offset = Vec2::new(dx, dy);
+                                }
+                            }
+                            for p in shape.points_mut_iter() {
+                                *p += best_offset;
+                            }
+                        }
+                    }
+                }
+            } else {
+                let delta = ui.input(|i| i.pointer.delta());
+                if delta != Vec2::ZERO {
+                    let world_delta = gizmo::Gizmo::handle_drag(self.gizmo_hit, delta, &self.camera);
+                    if let Some(ref mut shape) = self.shape {
+                        shape.translate_all(world_delta);
+                    }
+                }
+            }
+        } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+            self.gizmo_dragging = true;
+        } else if response.dragged_by(egui::PointerButton::Middle)
+            || (response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_point.is_none())
+        {
+            self.camera.pan(ui.input(|i| i.pointer.delta()));
+        }
+
+        if response.clicked_by(egui::PointerButton::Primary) && !self.gizmo_dragging {
             if let Some(mouse_pos) = ui.input(|i| i.pointer.interact_pos()) {
                 let world_pos = self.camera.screen_to_world(mouse_pos, canvas_center);
-
                 match self.state {
                     EditorState::Add | EditorState::Point => {
                         if let Some(ref mut shape) = self.shape {

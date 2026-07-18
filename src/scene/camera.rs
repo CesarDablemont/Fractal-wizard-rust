@@ -21,7 +21,7 @@ impl Default for Camera {
             zoom: 10.0,
             grid_spacing: 50.0,
             display_grid: true,
-            magnetism: false,
+            magnetism: true,
             display_points: true,
             point_size: 6.0,
             display_origin: true,
