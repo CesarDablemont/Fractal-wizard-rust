@@ -263,13 +263,7 @@ impl FigureEditor {
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
 
-        if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta);
-            if scroll.y != 0.0 {
-                let factor = 1.15f32.powf(scroll.y / 10.0);
-                self.camera.zoom_at(factor, ui.input(|i| i.pointer.hover_pos().unwrap_or(canvas_center)), canvas_center);
-            }
-        }
+        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
 
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);

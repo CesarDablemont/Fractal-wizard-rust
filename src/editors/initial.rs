@@ -194,16 +194,8 @@ impl InitialEditor {
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
 
-        if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta);
-            if scroll.y != 0.0 {
-                let factor = 1.15f32.powf(scroll.y / 10.0);
-                self.camera.zoom_at(factor, ui.input(|i| i.pointer.hover_pos().unwrap_or(canvas_center)), canvas_center);
-            }
-        }
-        if response.dragged_by(egui::PointerButton::Middle) {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
+        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
+        shared::handle_middle_pan(&response, ui, &mut self.camera);
 
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
@@ -220,38 +212,26 @@ impl InitialEditor {
             );
         }
 
-        if self.show_gizmo && !self.gizmo_dragging {
-            if let Some(&idx) = self.selected.first() {
-                if idx < self.shapes.len() {
-                    let pos = self.shapes[idx].translate;
-                    if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
-                        self.gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, &self.camera, canvas_center);
-                    }
-                    gizmo::Gizmo::draw(pos, &self.camera, canvas_center, self.gizmo_hit, &mut shapes);
-                }
-            }
-        }
-
-        let half = self.camera.point_size;
         let translates: Vec<Pos2> = self.shapes.iter().map(|s| s.translate).collect();
 
-        if response.clicked_by(egui::PointerButton::Primary) {
-            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if self.show_gizmo && self.gizmo_hit != GizmoHit::None {
-                    // gizmo click handled via drag
-                } else {
-                    let hit = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half);
-                    if let Some(idx) = hit {
-                        self.selected = vec![idx];
-                    } else {
-                        self.selected.clear();
-                    }
-                }
-            }
-        }
+        shared::handle_draw_gizmo(
+            ui, &self.camera, canvas_center,
+            self.show_gizmo, self.gizmo_dragging,
+            &self.selected, &translates,
+            &mut self.gizmo_hit, &mut shapes,
+        );
+
+        shared::handle_primary_click_selection(
+            &response, ui,
+            self.show_gizmo, self.gizmo_hit,
+            &translates, &self.camera, canvas_center,
+            self.camera.point_size,
+            &mut self.selected,
+        );
 
         let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
         let pointer_released = ui.input(|i| i.pointer.any_released());
+        let half = self.camera.point_size;
 
         if self.gizmo_dragging {
             if pointer_released {
@@ -312,33 +292,13 @@ impl InitialEditor {
         if let Some(&idx) = self.selected.first() {
             if idx < self.shapes.len() {
                 let p = &mut self.shapes[idx];
-                ui.separator();
-                ui.label(format!("Initial {}", idx + 1));
-
-                let mut changed = false;
-                let mut tx = p.translate.x;
-                let mut ty = p.translate.y;
-                ui.horizontal(|ui| {
-                    ui.label("X:");
-                    changed |= ui.add(egui::DragValue::new(&mut tx).speed(1.0)).changed();
-                    ui.label("Y:");
-                    changed |= ui.add(egui::DragValue::new(&mut ty).speed(1.0)).changed();
-                });
-                let mut deg = p.rotate.to_degrees();
-                ui.horizontal(|ui| {
-                    ui.label("Rotation:");
-                    changed |= ui.add(egui::DragValue::new(&mut deg).speed(1.0).suffix("°")).changed();
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Scale:");
-                    changed |= ui.add(egui::DragValue::new(&mut p.scale).speed(0.1).range(0.01..=10.0)).changed();
-                });
-
-                if changed {
-                    p.translate.x = tx;
-                    p.translate.y = ty;
-                    p.rotate = deg.to_radians();
-                }
+                shared::render_transform_properties(
+                    ui,
+                    &format!("Initial {}", idx + 1),
+                    &mut p.translate,
+                    &mut p.rotate,
+                    &mut p.scale,
+                );
             }
         }
     }

@@ -1,7 +1,8 @@
-use eframe::egui::{Color32, Pos2, Shape, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::shapes::shape::apply_transform;
+use crate::gizmo::{self, GizmoHit};
 use crate::types::Line;
 
 #[derive(Serialize, Deserialize)]
@@ -110,4 +111,111 @@ pub fn iter_hit_test(
         let d = screen - mouse;
         d.x.abs() <= half && d.y.abs() <= half
     })
+}
+
+pub fn handle_zoom_scroll(response: &egui::Response, ui: &egui::Ui, camera: &mut Camera, canvas_center: Pos2) {
+    if response.hovered() {
+        let scroll = ui.input(|i| i.raw_scroll_delta);
+        if scroll.y != 0.0 {
+            let factor = 1.15f32.powf(scroll.y / 10.0);
+            let mouse = ui.input(|i| i.pointer.hover_pos()).unwrap_or(canvas_center);
+            camera.zoom_at(factor, mouse, canvas_center);
+        }
+    }
+}
+
+pub fn handle_middle_pan(response: &egui::Response, ui: &egui::Ui, camera: &mut Camera) {
+    if response.dragged_by(egui::PointerButton::Middle) {
+        camera.pan(ui.input(|i| i.pointer.delta()));
+    }
+}
+
+pub fn handle_draw_gizmo(
+    ui: &egui::Ui,
+    camera: &Camera,
+    canvas_center: Pos2,
+    show_gizmo: bool,
+    gizmo_dragging: bool,
+    selected: &[usize],
+    translates: &[Pos2],
+    gizmo_hit: &mut GizmoHit,
+    shapes: &mut Vec<Shape>,
+) {
+    if show_gizmo && !gizmo_dragging {
+        if let Some(&idx) = selected.first() {
+            if idx < translates.len() {
+                let pos = translates[idx];
+                if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
+                    *gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, camera, canvas_center);
+                }
+                gizmo::Gizmo::draw(pos, camera, canvas_center, *gizmo_hit, shapes);
+            }
+        }
+    }
+}
+
+pub fn handle_primary_click_selection(
+    response: &egui::Response,
+    ui: &egui::Ui,
+    show_gizmo: bool,
+    gizmo_hit: GizmoHit,
+    translates: &[Pos2],
+    camera: &Camera,
+    canvas_center: Pos2,
+    half: f32,
+    selected: &mut Vec<usize>,
+) {
+    if response.clicked_by(egui::PointerButton::Primary) {
+        if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
+            if show_gizmo && gizmo_hit != GizmoHit::None {
+                // gizmo click handled via drag
+            } else {
+                let hit = iter_hit_test(translates, mouse, camera, canvas_center, half);
+                if let Some(idx) = hit {
+                    *selected = vec![idx];
+                } else {
+                    selected.clear();
+                }
+            }
+        }
+    }
+}
+
+
+
+pub fn render_transform_properties(
+    ui: &mut egui::Ui,
+    label: &str,
+    translate: &mut Pos2,
+    rotate: &mut f32,
+    scale: &mut f32,
+) -> bool {
+    ui.separator();
+    ui.label(label);
+
+    let mut changed = false;
+    let mut tx = translate.x;
+    let mut ty = translate.y;
+    ui.horizontal(|ui| {
+        ui.label("X:");
+        changed |= ui.add(egui::DragValue::new(&mut tx).speed(1.0)).changed();
+        ui.label("Y:");
+        changed |= ui.add(egui::DragValue::new(&mut ty).speed(1.0)).changed();
+    });
+    let mut deg = rotate.to_degrees();
+    ui.horizontal(|ui| {
+        ui.label("Rotation:");
+        changed |= ui.add(egui::DragValue::new(&mut deg).speed(1.0).suffix("°")).changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label("Scale:");
+        changed |= ui.add(egui::DragValue::new(scale).speed(0.1).range(0.01..=10.0)).changed();
+    });
+
+    if changed {
+        translate.x = tx;
+        translate.y = ty;
+        *rotate = deg.to_radians();
+    }
+    changed
 }

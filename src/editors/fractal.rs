@@ -588,18 +588,8 @@ impl FractalEditor {
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
 
-        if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta);
-            if scroll.y != 0.0 {
-                let factor = 1.15f32.powf(scroll.y / 10.0);
-                let mouse = ui.input(|i| i.pointer.hover_pos().unwrap_or(canvas_center));
-                self.camera.zoom_at(factor, mouse, canvas_center);
-            }
-        }
-
-        if response.dragged_by(egui::PointerButton::Middle) {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
+        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
+        shared::handle_middle_pan(&response, ui, &mut self.camera);
 
         if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() {
             self.camera.pan(ui.input(|i| i.pointer.delta()));
