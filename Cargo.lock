@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "fractal-wizard"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eframe",
  "rand 0.9.4",
