@@ -478,7 +478,7 @@ impl PatternEditor {
             let n = self.patterns.len() as f32;
             let h = self.patterns[0].scale;
             if h > 0.0 {
-                self.dimension = n.log10() / (1.0 / h).log10();
+                self.dimension = n.log10() / h.log10();
             }
         }
     }
