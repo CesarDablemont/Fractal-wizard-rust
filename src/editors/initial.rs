@@ -67,7 +67,7 @@ impl Default for InitialEditor {
 impl InitialEditor {
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
-            self.model_points = pts.clone();
+            self.model_points = pts;
             self.model_lines = lns;
             self.shapes = vec![ShapePatternData {
                 translate: pos2(0.0, 0.0),
