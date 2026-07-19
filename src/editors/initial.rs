@@ -1,19 +1,10 @@
-use eframe::egui::{self, pos2, Color32, Pos2, Shape, Stroke, Vec2};
-use serde::{Deserialize, Serialize};
+use eframe::egui::{self, pos2, Color32, Pos2, Shape, Vec2};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
-use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
-
-#[derive(Serialize, Deserialize)]
-struct ModelData {
-    r#type: String,
-    points: Vec<[f32; 2]>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    lines: Vec<Line>,
-}
+use super::shared;
 
 pub struct InitialEditor {
     pub shapes: Vec<ShapePatternData>,
@@ -33,20 +24,9 @@ pub struct InitialEditor {
     message: Option<String>,
 }
 
-fn default_model() -> (Vec<Pos2>, Vec<Line>) {
-    let pts = vec![
-        Pos2::new(-0.5, -0.5),
-        Pos2::new(0.5, -0.5),
-        Pos2::new(0.5, 0.5),
-        Pos2::new(-0.5, 0.5),
-    ];
-    let lines = vec![[0, 1], [1, 2], [2, 3], [3, 0]];
-    (pts, lines)
-}
-
 impl Default for InitialEditor {
     fn default() -> Self {
-        let (mp, ml) = default_model();
+        let (mp, ml) = shared::default_model();
         Self {
             shapes: Vec::new(),
             transfer_shapes: None,
@@ -100,24 +80,7 @@ impl InitialEditor {
     }
 
     fn load_model(&mut self, content: &str) -> Result<(), String> {
-        let data: ModelData = serde_json::from_str(content).map_err(|e| e.to_string())?;
-        self.model_points = data.points.iter().map(|&p| Pos2::new(p[0], p[1])).collect();
-        self.model_lines = data.lines;
-        if self.model_lines.is_empty() && self.model_points.len() >= 2 {
-            if data.r#type == "Polygon" || data.r#type == "cPolygon" {
-                self.model_lines = (0..self.model_points.len() - 1)
-                    .map(|i| [i, i + 1])
-                    .collect();
-                if self.model_points.len() > 2 {
-                    self.model_lines.push([self.model_points.len() - 1, 0]);
-                }
-            } else {
-                self.model_lines = (0..self.model_points.len() - 1)
-                    .map(|i| [i, i + 1])
-                    .collect();
-            }
-        }
-        Ok(())
+        shared::load_model(content, &mut self.model_points, &mut self.model_lines)
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
@@ -222,63 +185,26 @@ impl InitialEditor {
         }
     }
 
-    fn render_shape_at(
-        &self,
-        camera: &Camera,
-        canvas_center: Pos2,
-        translate: Pos2,
-        rotate: f32,
-        scale: f32,
-        color: Color32,
-        shapes: &mut Vec<Shape>,
-    ) {
-        if self.model_points.is_empty() {
-            return;
-        }
-        let stroke = Stroke::new(1.5, color);
-        let transformed: Vec<Pos2> = self
-            .model_points
-            .iter()
-            .map(|&p| apply_transform(p, translate, rotate, Vec2::new(scale, scale)))
-            .collect();
-        for &[a, b] in &self.model_lines {
-            if a < transformed.len() && b < transformed.len() {
-                let p1 = camera.world_to_screen(transformed[a], canvas_center);
-                let p2 = camera.world_to_screen(transformed[b], canvas_center);
-                shapes.push(Shape::line_segment([p1, p2], stroke));
-            }
-        }
-    }
-
     fn render_canvas(&mut self, ui: &mut egui::Ui) {
         let (response, painter) = ui.allocate_painter(
             ui.available_size(),
             egui::Sense::click_and_drag(),
         );
-
         let canvas_rect = response.rect;
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
 
-        if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta);
-            if scroll.y != 0.0 {
-                let factor = 1.15f32.powf(scroll.y / 10.0);
-                self.camera.zoom_at(factor, ui.input(|i| i.pointer.hover_pos().unwrap_or(canvas_center)), canvas_center);
-            }
-        }
-        if response.dragged_by(egui::PointerButton::Middle) {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
+        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
+        shared::handle_middle_pan(&response, ui, &mut self.camera);
 
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
 
-        // Draw each initial figure as the transformed shape
         for (i, p) in self.shapes.iter().enumerate() {
             let is_selected = self.selected.contains(&i);
             let color = if is_selected { Color32::WHITE } else { Color32::LIGHT_BLUE };
-            self.render_shape_at(
+            shared::render_shape_at(
+                &self.model_points, &self.model_lines,
                 &self.camera, canvas_center,
                 p.translate, p.rotate, 1.0 / p.scale,
                 color,
@@ -286,42 +212,26 @@ impl InitialEditor {
             );
         }
 
-        if self.show_gizmo && !self.gizmo_dragging {
-            if let Some(&idx) = self.selected.first() {
-                if idx < self.shapes.len() {
-                    let pos = self.shapes[idx].translate;
-                    if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
-                        self.gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, &self.camera, canvas_center);
-                    }
-                    gizmo::Gizmo::draw(pos, &self.camera, canvas_center, self.gizmo_hit, &mut shapes);
-                }
-            }
-        }
+        let translates: Vec<Pos2> = self.shapes.iter().map(|s| s.translate).collect();
 
-        // Canvas interaction
-        let half = self.camera.point_size;
+        shared::handle_draw_gizmo(
+            ui, &self.camera, canvas_center,
+            self.show_gizmo, self.gizmo_dragging,
+            &self.selected, &translates,
+            &mut self.gizmo_hit, &mut shapes,
+        );
 
-        if response.clicked_by(egui::PointerButton::Primary) {
-            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if self.show_gizmo && self.gizmo_hit != GizmoHit::None {
-                    // gizmo click handled via drag
-                } else {
-                    let hit = self.shapes.iter().position(|p| {
-                        let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                        let d = screen - mouse;
-                        d.x.abs() <= half && d.y.abs() <= half
-                    });
-                    if let Some(idx) = hit {
-                        self.selected = vec![idx];
-                    } else {
-                        self.selected.clear();
-                    }
-                }
-            }
-        }
+        shared::handle_primary_click_selection(
+            &response, ui,
+            self.show_gizmo, self.gizmo_hit,
+            &translates, &self.camera, canvas_center,
+            self.camera.point_size,
+            &mut self.selected,
+        );
 
         let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
         let pointer_released = ui.input(|i| i.pointer.any_released());
+        let half = self.camera.point_size;
 
         if self.gizmo_dragging {
             if pointer_released {
@@ -330,23 +240,11 @@ impl InitialEditor {
                     if let Some(&idx) = self.selected.first() {
                         if idx < self.shapes.len() {
                             let s = &self.shapes[idx];
-                            let spacing = crate::scene::camera::Camera::choose_grid_spacing(self.camera.zoom);
-                            let scale = 1.0 / s.scale;
-                            let mut best_dist = f32::MAX;
-                            let mut best_offset = Vec2::ZERO;
-                            for &mp in &self.model_points {
-                                let tp = apply_transform(mp, s.translate, s.rotate, Vec2::new(scale, scale));
-                                let sx = (tp.x / spacing).round() * spacing;
-                                let sy = (tp.y / spacing).round() * spacing;
-                                let dx = sx - tp.x;
-                                let dy = sy - tp.y;
-                                let d = dx * dx + dy * dy;
-                                if d < best_dist {
-                                    best_dist = d;
-                                    best_offset = Vec2::new(dx, dy);
-                                }
-                            }
-                            self.shapes[idx].translate += best_offset;
+                            let offset = shared::snap_translation(
+                                &self.model_points, s.translate, s.rotate, 1.0 / s.scale,
+                                self.camera.zoom,
+                            );
+                            self.shapes[idx].translate += offset;
                         }
                     }
                 }
@@ -377,11 +275,7 @@ impl InitialEditor {
 
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if let Some(idx) = self.shapes.iter().position(|p| {
-                    let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                    let d = screen - mouse;
-                    d.x.abs() <= half && d.y.abs() <= half
-                }) {
+                if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
                     self.shapes.remove(idx);
                     self.selected.retain(|&x| x != idx);
                 }
@@ -398,33 +292,13 @@ impl InitialEditor {
         if let Some(&idx) = self.selected.first() {
             if idx < self.shapes.len() {
                 let p = &mut self.shapes[idx];
-                ui.separator();
-                ui.label(format!("Initial {}", idx + 1));
-
-                let mut changed = false;
-                let mut tx = p.translate.x;
-                let mut ty = p.translate.y;
-                ui.horizontal(|ui| {
-                    ui.label("X:");
-                    changed |= ui.add(egui::DragValue::new(&mut tx).speed(1.0)).changed();
-                    ui.label("Y:");
-                    changed |= ui.add(egui::DragValue::new(&mut ty).speed(1.0)).changed();
-                });
-                let mut deg = p.rotate.to_degrees();
-                ui.horizontal(|ui| {
-                    ui.label("Rotation:");
-                    changed |= ui.add(egui::DragValue::new(&mut deg).speed(1.0).suffix("°")).changed();
-                });
-                ui.horizontal(|ui| {
-                    ui.label("Scale:");
-                    changed |= ui.add(egui::DragValue::new(&mut p.scale).speed(0.1).range(0.01..=10.0)).changed();
-                });
-
-                if changed {
-                    p.translate.x = tx;
-                    p.translate.y = ty;
-                    p.rotate = deg.to_radians();
-                }
+                shared::render_transform_properties(
+                    ui,
+                    &format!("Initial {}", idx + 1),
+                    &mut p.translate,
+                    &mut p.rotate,
+                    &mut p.scale,
+                );
             }
         }
     }

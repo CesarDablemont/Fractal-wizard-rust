@@ -1,5 +1,4 @@
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
-use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
 use crate::shapes::polygon::Polygon;
@@ -8,14 +7,7 @@ use crate::shapes::shape::Shape as ShapeTrait;
 use crate::types::{EditorState, FigureType, Line};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
-
-#[derive(Serialize, Deserialize)]
-struct FigureData {
-    r#type: String,
-    points: Vec<[f32; 2]>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    lines: Vec<Line>,
-}
+use super::shared;
 
 pub struct FigureEditor {
     pub file_path: Option<String>,
@@ -160,7 +152,7 @@ impl FigureEditor {
                 ui.separator();
                 if ui.button("Ouvrir").clicked() {
                     if let Some((path, content)) = file_io::open_json("Ouvrir une figure", "firfw") {
-                        match serde_json::from_str::<FigureData>(&content) {
+                        match serde_json::from_str::<shared::ModelData>(&content) {
                             Ok(data) => {
                                 self.file_path = Some(path.display().to_string());
                                 self.shape = Some(match data.r#type.as_str() {
@@ -189,12 +181,12 @@ impl FigureEditor {
                 if ui.button("Enregistrer").clicked() {
                     if let Some(ref shape) = self.shape {
                         let data = match shape {
-                            FigureShape::Polygon(p) => FigureData {
+                            FigureShape::Polygon(p) => shared::ModelData {
                                 r#type: "Polygon".into(),
                                 points: p.points().iter().map(|pt| [pt.x, pt.y]).collect(),
                                 lines: Vec::new(),
                             },
-                            FigureShape::FreeLinear(s) => FigureData {
+                            FigureShape::FreeLinear(s) => shared::ModelData {
                                 r#type: "FreeLinear".into(),
                                 points: s.points().iter().map(|pt| [pt.x, pt.y]).collect(),
                                 lines: s.lines().to_vec(),
@@ -271,13 +263,7 @@ impl FigureEditor {
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
 
-        if response.hovered() {
-            let scroll = ui.input(|i| i.raw_scroll_delta);
-            if scroll.y != 0.0 {
-                let factor = 1.15f32.powf(scroll.y / 10.0);
-                self.camera.zoom_at(factor, ui.input(|i| i.pointer.hover_pos().unwrap_or(canvas_center)), canvas_center);
-            }
-        }
+        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
 
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
