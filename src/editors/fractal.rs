@@ -11,18 +11,11 @@ use crate::shapes::free_linear::FreeLinearShape;
 use crate::shapes::shape::Shape as ShapeTrait;
 use crate::types::{EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
 use crate::file_io;
-
-#[derive(Serialize, Deserialize)]
-struct FigureShapeData {
-    r#type: String,
-    points: Vec<[f32; 2]>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    lines: Vec<Line>,
-}
+use super::shared;
 
 #[derive(Serialize, Deserialize)]
 struct FractalFile {
-    shape: Option<FigureShapeData>,
+    shape: Option<shared::ModelData>,
     pattern: PatternEditorData,
     initial: Vec<ShapePatternData>,
     iterations: usize,
@@ -246,7 +239,7 @@ impl FractalEditor {
     }
 
     fn import_firfw(&mut self, content: &str) -> Result<(), String> {
-        let data: FigureShapeData = serde_json::from_str(content).map_err(|e| e.to_string())?;
+        let data: shared::ModelData = serde_json::from_str(content).map_err(|e| e.to_string())?;
         self.load_shape_from_data(&data);
         self.canvas_renderer.rebuild_chunks = true;
         Ok(())
@@ -270,14 +263,14 @@ impl FractalEditor {
         Ok(())
     }
 
-    fn shape_to_data(&self) -> Option<FigureShapeData> {
+    fn shape_to_data(&self) -> Option<shared::ModelData> {
         self.shape.as_ref().map(|s| match s {
-            ShapeWrapper::Polygon(p) => FigureShapeData {
+            ShapeWrapper::Polygon(p) => shared::ModelData {
                 r#type: "Polygon".into(),
                 points: p.points().iter().map(|pt| [pt.x, pt.y]).collect(),
                 lines: Vec::new(),
             },
-            ShapeWrapper::FreeLinear(s) => FigureShapeData {
+            ShapeWrapper::FreeLinear(s) => shared::ModelData {
                 r#type: "FreeLinear".into(),
                 points: s.points().iter().map(|pt| [pt.x, pt.y]).collect(),
                 lines: s.lines().to_vec(),
@@ -285,7 +278,7 @@ impl FractalEditor {
         })
     }
 
-    fn load_shape_from_data(&mut self, data: &FigureShapeData) {
+    fn load_shape_from_data(&mut self, data: &shared::ModelData) {
         self.shape = Some(match data.r#type.as_str() {
             "Polygon" | "cPolygon" => {
                 let pts = data.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
