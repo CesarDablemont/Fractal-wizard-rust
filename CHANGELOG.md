@@ -3,6 +3,12 @@
 ### Bug Fixes
 ---
 
+- **CI:** Cargo release version([`428e012`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/428e012539a5a5155e41f9e30f0f25fa325677cd))
+
+
+### Bug Fixes
+---
+
 - **CI:** Cargo release version([`b811c2a`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/b811c2a07403d755ac16ee25958471ec022b194d))
 - **CI:** Cargo release version([`48d14e4`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/48d14e4cff2959ae9947bbba0127858641dbcd78))
 
