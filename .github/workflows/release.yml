@@ -20,10 +20,14 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install git-cliff
-        uses: taiki-e/install-action@git-cliff
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
 
       - name: Install cargo-release
-        uses: taiki-e/install-action@cargo-release
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-release
 
       - name: Get last tag
         id: last_tag
