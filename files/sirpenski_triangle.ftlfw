@@ -55,13 +55,12 @@
       "scale": 1.0
     }
   ],
-  "iterations": 10,
+  "iterations": 3,
   "regroup": false,
   "add_delta": false,
   "delta": [
     0.0,
     0.0
   ],
-  "delta_intervals": 1000,
-  "display_parent": false
+  "delta_intervals": 1000
 }

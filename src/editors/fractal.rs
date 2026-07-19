@@ -23,7 +23,6 @@ struct FractalFile {
     add_delta: bool,
     delta: [f32; 2],
     delta_intervals: u32,
-    display_parent: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -391,7 +390,7 @@ impl FractalEditor {
                                     self.shape = None;
                                 }
                                 self.pattern_data = data.pattern.patterns;
-                                self.display_parent = data.display_parent;
+                                self.display_parent = data.pattern.display_parent;
                                 self.initial_data = data.initial;
                                 self.iterations = data.iterations;
                                 self.regroup = data.regroup;
@@ -419,7 +418,6 @@ impl FractalEditor {
                         add_delta: self.add_delta,
                         delta: [self.delta.x, self.delta.y],
                         delta_intervals: self.delta_intervals,
-                        display_parent: self.display_parent,
                     };
                     let json = serde_json::to_string_pretty(&data).unwrap();
                     let name = self.file_path.as_deref().and_then(|p| {
