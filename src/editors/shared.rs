@@ -71,3 +71,43 @@ pub fn render_shape_at(
         }
     }
 }
+
+pub fn snap_translation(
+    model_points: &[Pos2],
+    current_translate: Pos2,
+    rotate: f32,
+    scale: f32,
+    zoom: f32,
+) -> Vec2 {
+    let spacing = Camera::choose_grid_spacing(zoom);
+    let s = scale;
+    let mut best_dist = f32::MAX;
+    let mut best_offset = Vec2::ZERO;
+    for &mp in model_points {
+        let tp = apply_transform(mp, current_translate, rotate, Vec2::new(s, s));
+        let sx = (tp.x / spacing).round() * spacing;
+        let sy = (tp.y / spacing).round() * spacing;
+        let dx = sx - tp.x;
+        let dy = sy - tp.y;
+        let d = dx * dx + dy * dy;
+        if d < best_dist {
+            best_dist = d;
+            best_offset = Vec2::new(dx, dy);
+        }
+    }
+    best_offset
+}
+
+pub fn iter_hit_test(
+    shapes: &[Pos2],
+    mouse: Pos2,
+    camera: &Camera,
+    canvas_center: Pos2,
+    half: f32,
+) -> Option<usize> {
+    shapes.iter().position(|&p| {
+        let screen = camera.world_to_screen(p, canvas_center);
+        let d = screen - mouse;
+        d.x.abs() <= half && d.y.abs() <= half
+    })
+}

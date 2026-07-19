@@ -2,7 +2,6 @@ use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
-use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
@@ -217,7 +216,6 @@ impl PatternEditor {
             ui.available_size(),
             egui::Sense::click_and_drag(),
         );
-
         let canvas_rect = response.rect;
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
@@ -236,7 +234,6 @@ impl PatternEditor {
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
 
-        // Show the original model at origin
         if self.show_origin_figure && !self.model_points.is_empty() {
             shared::render_shape_at(
                 &self.model_points, &self.model_lines,
@@ -247,7 +244,6 @@ impl PatternEditor {
             );
         }
 
-        // Draw each pattern as the transformed shape
         for (i, p) in self.patterns.iter().enumerate() {
             let is_selected = self.selected.contains(&i);
             let color = if is_selected { Color32::WHITE } else { Color32::YELLOW };
@@ -272,19 +268,15 @@ impl PatternEditor {
             }
         }
 
-        // Canvas interaction
         let half = self.camera.point_size;
+        let translates: Vec<Pos2> = self.patterns.iter().map(|s| s.translate).collect();
 
         if response.clicked_by(egui::PointerButton::Primary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
                 if self.show_gizmo && self.gizmo_hit != GizmoHit::None {
                     // gizmo click handled via drag
                 } else {
-                    let hit = self.patterns.iter().position(|p| {
-                        let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                        let d = screen - mouse;
-                        d.x.abs() <= half && d.y.abs() <= half
-                    });
+                    let hit = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half);
                     if let Some(idx) = hit {
                         self.selected = vec![idx];
                     } else {
@@ -304,23 +296,11 @@ impl PatternEditor {
                     if let Some(&idx) = self.selected.first() {
                         if idx < self.patterns.len() {
                             let p = &self.patterns[idx];
-                            let spacing = crate::scene::camera::Camera::choose_grid_spacing(self.camera.zoom);
-                            let scale = 1.0 / p.scale;
-                            let mut best_dist = f32::MAX;
-                            let mut best_offset = Vec2::ZERO;
-                            for &mp in &self.model_points {
-                                let tp = apply_transform(mp, p.translate, p.rotate, Vec2::new(scale, scale));
-                                let sx = (tp.x / spacing).round() * spacing;
-                                let sy = (tp.y / spacing).round() * spacing;
-                                let dx = sx - tp.x;
-                                let dy = sy - tp.y;
-                                let d = dx * dx + dy * dy;
-                                if d < best_dist {
-                                    best_dist = d;
-                                    best_offset = Vec2::new(dx, dy);
-                                }
-                            }
-                            self.patterns[idx].translate += best_offset;
+                            let offset = shared::snap_translation(
+                                &self.model_points, p.translate, p.rotate, 1.0 / p.scale,
+                                self.camera.zoom,
+                            );
+                            self.patterns[idx].translate += offset;
                             self.recalculate_dimension();
                         }
                     }
@@ -354,11 +334,7 @@ impl PatternEditor {
 
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if let Some(idx) = self.patterns.iter().position(|p| {
-                    let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                    let d = screen - mouse;
-                    d.x.abs() <= half && d.y.abs() <= half
-                }) {
+                if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
                     self.patterns.remove(idx);
                     self.selected.retain(|&x| x != idx);
                 }

@@ -1,7 +1,6 @@
 use eframe::egui::{self, pos2, Color32, Pos2, Shape, Vec2};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
-use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
@@ -191,7 +190,6 @@ impl InitialEditor {
             ui.available_size(),
             egui::Sense::click_and_drag(),
         );
-
         let canvas_rect = response.rect;
         let canvas_center = canvas_rect.center();
         let mut shapes: Vec<Shape> = Vec::new();
@@ -210,7 +208,6 @@ impl InitialEditor {
         self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
         self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
 
-        // Draw each initial figure as the transformed shape
         for (i, p) in self.shapes.iter().enumerate() {
             let is_selected = self.selected.contains(&i);
             let color = if is_selected { Color32::WHITE } else { Color32::LIGHT_BLUE };
@@ -235,19 +232,15 @@ impl InitialEditor {
             }
         }
 
-        // Canvas interaction
         let half = self.camera.point_size;
+        let translates: Vec<Pos2> = self.shapes.iter().map(|s| s.translate).collect();
 
         if response.clicked_by(egui::PointerButton::Primary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
                 if self.show_gizmo && self.gizmo_hit != GizmoHit::None {
                     // gizmo click handled via drag
                 } else {
-                    let hit = self.shapes.iter().position(|p| {
-                        let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                        let d = screen - mouse;
-                        d.x.abs() <= half && d.y.abs() <= half
-                    });
+                    let hit = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half);
                     if let Some(idx) = hit {
                         self.selected = vec![idx];
                     } else {
@@ -267,23 +260,11 @@ impl InitialEditor {
                     if let Some(&idx) = self.selected.first() {
                         if idx < self.shapes.len() {
                             let s = &self.shapes[idx];
-                            let spacing = crate::scene::camera::Camera::choose_grid_spacing(self.camera.zoom);
-                            let scale = 1.0 / s.scale;
-                            let mut best_dist = f32::MAX;
-                            let mut best_offset = Vec2::ZERO;
-                            for &mp in &self.model_points {
-                                let tp = apply_transform(mp, s.translate, s.rotate, Vec2::new(scale, scale));
-                                let sx = (tp.x / spacing).round() * spacing;
-                                let sy = (tp.y / spacing).round() * spacing;
-                                let dx = sx - tp.x;
-                                let dy = sy - tp.y;
-                                let d = dx * dx + dy * dy;
-                                if d < best_dist {
-                                    best_dist = d;
-                                    best_offset = Vec2::new(dx, dy);
-                                }
-                            }
-                            self.shapes[idx].translate += best_offset;
+                            let offset = shared::snap_translation(
+                                &self.model_points, s.translate, s.rotate, 1.0 / s.scale,
+                                self.camera.zoom,
+                            );
+                            self.shapes[idx].translate += offset;
                         }
                     }
                 }
@@ -314,11 +295,7 @@ impl InitialEditor {
 
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if let Some(idx) = self.shapes.iter().position(|p| {
-                    let screen = self.camera.world_to_screen(p.translate, canvas_center);
-                    let d = screen - mouse;
-                    d.x.abs() <= half && d.y.abs() <= half
-                }) {
+                if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
                     self.shapes.remove(idx);
                     self.selected.retain(|&x| x != idx);
                 }
