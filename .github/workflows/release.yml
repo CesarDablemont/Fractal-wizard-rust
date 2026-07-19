@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install git-cliff
+        run: cargo install git-cliff
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+
+      - name: Get last tag
+        id: last_tag
+        run: |
+          TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Analyze commits for bump type
+        id: bump
+        run: |
+          LAST_TAG="${{ steps.last_tag.outputs.tag }}"
+          if [ -z "$LAST_TAG" ]; then
+            RANGE="HEAD"
+          else
+            RANGE="${LAST_TAG}..HEAD"
+          fi
+
+          COMMITS=$(git log "$RANGE" --pretty=format:"%s" 2>/dev/null || echo "")
+
+          if echo "$COMMITS" | grep -qiE "BREAKING CHANGE|^[a-z]+!:"; then
+            echo "level=major" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMITS" | grep -qiE "^feat"; then
+            echo "level=minor" >> "$GITHUB_OUTPUT"
+          elif echo "$COMMITS" | grep -qiE "^fix"; then
+            echo "level=patch" >> "$GITHUB_OUTPUT"
+          else
+            echo "level=none" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get current version
+        id: current_version
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        run: |
+          VERSION=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Bump version
+        id: new_version
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        run: |
+          LEVEL="${{ steps.bump.outputs.level }}"
+          CURRENT="${{ steps.current_version.outputs.version }}"
+          cargo release version "$LEVEL" --no-confirm --no-tag --no-push --no-publish
+          NEW_VERSION=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[0].version')
+          echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Bumped version: $CURRENT -> $NEW_VERSION ($LEVEL)"
+
+      - name: Generate changelog
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        run: |
+          git-cliff --tag "v${{ steps.new_version.outputs.version }}" --output CHANGELOG.md
+
+      - name: Commit, tag, and push
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "chore(release): v${{ steps.new_version.outputs.version }}"
+          git tag "v${{ steps.new_version.outputs.version }}"
+          git push origin main --follow-tags
+
+      - name: Create GitHub Release
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.new_version.outputs.version }}"
+          name: "v${{ steps.new_version.outputs.version }}"
+          generate_release_notes: false
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
