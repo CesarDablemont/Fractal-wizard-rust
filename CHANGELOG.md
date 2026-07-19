@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
 - Most of warnings
 - Duplicate figure
 - Pattern editor UI
+- Negative dimension in pattern editor
+- Install cargo-release instead of cargo-edit in CI
+- Correct cargo release version command flags
+
+### CI/CD
+
+- Add auto versioning with git-cliff and GitHub Actions
 
 ### Features
 
