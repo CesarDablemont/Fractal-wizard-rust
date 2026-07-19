@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::CanvasRenderer;
@@ -6,19 +6,12 @@ use crate::shapes::shape::apply_transform;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
+use super::shared;
 
 #[derive(Serialize, Deserialize)]
 struct PatternFile {
     display_parent: bool,
     patterns: Vec<ShapePatternData>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ModelData {
-    r#type: String,
-    points: Vec<[f32; 2]>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    lines: Vec<Line>,
 }
 
 pub struct PatternEditor {
@@ -42,20 +35,9 @@ pub struct PatternEditor {
     message: Option<String>,
 }
 
-fn default_model() -> (Vec<Pos2>, Vec<Line>) {
-    let pts = vec![
-        Pos2::new(-0.5, -0.5),
-        Pos2::new(0.5, -0.5),
-        Pos2::new(0.5, 0.5),
-        Pos2::new(-0.5, 0.5),
-    ];
-    let lines = vec![[0, 1], [1, 2], [2, 3], [3, 0]];
-    (pts, lines)
-}
-
 impl Default for PatternEditor {
     fn default() -> Self {
-        let (mp, ml) = default_model();
+        let (mp, ml) = shared::default_model();
         Self {
             patterns: Vec::new(),
             display_parent: false,
@@ -118,25 +100,7 @@ impl PatternEditor {
     }
 
     fn load_model(&mut self, content: &str) -> Result<(), String> {
-        let data: ModelData = serde_json::from_str(content).map_err(|e| e.to_string())?;
-        self.model_points = data.points.iter().map(|&p| Pos2::new(p[0], p[1])).collect();
-        self.model_lines = data.lines;
-        // If no lines stored, build from points (polygon)
-        if self.model_lines.is_empty() && self.model_points.len() >= 2 {
-            if data.r#type == "Polygon" || data.r#type == "cPolygon" {
-                self.model_lines = (0..self.model_points.len() - 1)
-                    .map(|i| [i, i + 1])
-                    .collect();
-                if self.model_points.len() > 2 {
-                    self.model_lines.push([self.model_points.len() - 1, 0]);
-                }
-            } else {
-                self.model_lines = (0..self.model_points.len() - 1)
-                    .map(|i| [i, i + 1])
-                    .collect();
-            }
-        }
-        Ok(())
+        shared::load_model(content, &mut self.model_points, &mut self.model_lines)
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
@@ -248,34 +212,6 @@ impl PatternEditor {
         }
     }
 
-    fn render_shape_at(
-        &self,
-        camera: &Camera,
-        canvas_center: Pos2,
-        translate: Pos2,
-        rotate: f32,
-        scale: f32,
-        color: Color32,
-        shapes: &mut Vec<Shape>,
-    ) {
-        if self.model_points.is_empty() {
-            return;
-        }
-        let stroke = Stroke::new(1.5, color);
-        let transformed: Vec<Pos2> = self
-            .model_points
-            .iter()
-            .map(|&p| apply_transform(p, translate, rotate, Vec2::new(scale, scale)))
-            .collect();
-        for &[a, b] in &self.model_lines {
-            if a < transformed.len() && b < transformed.len() {
-                let p1 = camera.world_to_screen(transformed[a], canvas_center);
-                let p2 = camera.world_to_screen(transformed[b], canvas_center);
-                shapes.push(Shape::line_segment([p1, p2], stroke));
-            }
-        }
-    }
-
     fn render_canvas(&mut self, ui: &mut egui::Ui) {
         let (response, painter) = ui.allocate_painter(
             ui.available_size(),
@@ -302,7 +238,8 @@ impl PatternEditor {
 
         // Show the original model at origin
         if self.show_origin_figure && !self.model_points.is_empty() {
-            self.render_shape_at(
+            shared::render_shape_at(
+                &self.model_points, &self.model_lines,
                 &self.camera, canvas_center,
                 Pos2::ZERO, 0.0, 1.0,
                 Color32::from_rgba_premultiplied(180, 180, 180, 100),
@@ -314,7 +251,8 @@ impl PatternEditor {
         for (i, p) in self.patterns.iter().enumerate() {
             let is_selected = self.selected.contains(&i);
             let color = if is_selected { Color32::WHITE } else { Color32::YELLOW };
-            self.render_shape_at(
+            shared::render_shape_at(
+                &self.model_points, &self.model_lines,
                 &self.camera, canvas_center,
                 p.translate, p.rotate, 1.0 / p.scale,
                 color,
