@@ -374,11 +374,6 @@ impl FractalEditor {
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
-                if ui.button("Générer la fractale").clicked() {
-                    self.generate();
-                    ui.close_menu();
-                }
-                ui.separator();
                 if ui.button("Ouvrir (ftlfw)").clicked() {
                     if let Some((path, content)) = file_io::open_json("Ouvrir une fractale", "ftlfw") {
                         match serde_json::from_str::<FractalFile>(&content) {
@@ -453,6 +448,24 @@ impl FractalEditor {
                             Ok(()) => self.message = Some("Figure initiale importée".into()),
                             Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
+                    }
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button("Exporter (csv)").clicked() {
+                    if let Some(ref fractal) = self.fractal {
+                        let mut csv = String::from("x,y\n");
+                        for pt in &fractal.points {
+                            csv.push_str(&format!("{},{}\n", pt.x, pt.y));
+                        }
+                        let name = self.file_path.as_deref().and_then(|p| {
+                            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
+                        }).unwrap_or("fractale");
+                        if file_io::save_csv("Exporter les points", &format!("{name}.csv"), &csv) {
+                            self.message = Some(format!("{} points exportés", fractal.points.len()));
+                        }
+                    } else {
+                        self.message = Some("Aucune fractale à exporter".into());
                     }
                     ui.close_menu();
                 }
