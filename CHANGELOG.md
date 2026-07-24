@@ -2,6 +2,21 @@
 
 ## Bug Fixes
 
+- **UI:** Fractal editor side bars([`3419938`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/341993861b8f4f61cfbe20ed9bde8156b3f741e3))
+
+## Features
+
+- Export fractal points in CSV file([`c53a302`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/c53a302a94910ae24629cdcc363f4b89f2b25a13))
+
+## Chore
+
+- Add README([`e46b990`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/e46b990f59c184b71faafdb4c05684cf12018d47))
+- Fix README([`edda06b`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/edda06b86f8ef69280e69c051528f7427a62a7c5))
+- Add license([`56fd842`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/56fd84278dc6b441c4edfefb9cdc7e9e5190810b))
+
+
+## Bug Fixes
+
 - Remove all #[allow]([`0abdbb9`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/0abdbb981f7f43482aabb5978b15cd34ca46b202))
 
 ## Features
