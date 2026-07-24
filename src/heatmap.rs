@@ -47,16 +47,16 @@ pub fn heatmap_color(score: f32) -> Color32 {
     if t < 0.5 {
         let u = t / 0.5;
         Color32::from_rgb(
-            (min[0] as f32 + (mid[0] as f32 - min[0] as f32) * u) as u8,
-            (min[1] as f32 + (mid[1] as f32 - min[1] as f32) * u) as u8,
-            (min[2] as f32 + (mid[2] as f32 - min[2] as f32) * u) as u8,
+            (f32::from(min[0]) + (f32::from(mid[0]) - f32::from(min[0])) * u) as u8,
+            (f32::from(min[1]) + (f32::from(mid[1]) - f32::from(min[1])) * u) as u8,
+            (f32::from(min[2]) + (f32::from(mid[2]) - f32::from(min[2])) * u) as u8,
         )
     } else {
         let u = (t - 0.5) / 0.5;
         Color32::from_rgb(
-            (mid[0] as f32 + (max[0] as f32 - mid[0] as f32) * u) as u8,
-            (mid[1] as f32 + (max[1] as f32 - mid[1] as f32) * u) as u8,
-            (mid[2] as f32 + (max[2] as f32 - mid[2] as f32) * u) as u8,
+            (f32::from(mid[0]) + (f32::from(max[0]) - f32::from(mid[0])) * u) as u8,
+            (f32::from(mid[1]) + (f32::from(max[1]) - f32::from(mid[1])) * u) as u8,
+            (f32::from(mid[2]) + (f32::from(max[2]) - f32::from(mid[2])) * u) as u8,
         )
     }
 }

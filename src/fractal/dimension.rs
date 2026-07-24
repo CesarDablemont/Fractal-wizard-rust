@@ -99,12 +99,12 @@ fn linear_regression_slope(x: &[f32], y: &[f32]) -> f32 {
     let n = x.len() as f32;
     let sum_x: f32 = x.iter().sum();
     let sum_y: f32 = y.iter().sum();
-    let sum_xy: f32 = x.iter().zip(y.iter()).map(|(&a, &b)| a * b).sum();
+    let sum_xy_products: f32 = x.iter().zip(y.iter()).map(|(&a, &b)| a * b).sum();
     let sum_xx: f32 = x.iter().map(|&a| a * a).sum();
 
     let denom = n * sum_xx - sum_x * sum_x;
     if denom == 0.0 {
         return 0.0;
     }
-    (n * sum_xy - sum_x * sum_y) / denom
+    (n * sum_xy_products - sum_x * sum_y) / denom
 }

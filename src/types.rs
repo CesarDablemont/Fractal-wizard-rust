@@ -42,7 +42,6 @@ impl Default for ShapePatternData {
 #[derive(Clone, Debug)]
 pub struct RandomWalkInfo {
     pub walk_steps: Vec<usize>,
-    pub max_steps: u64,
     pub length_walk: f32,
     pub is_random_walk_done: bool,
 }
@@ -57,7 +56,6 @@ impl Default for RandomWalkInfo {
     fn default() -> Self {
         Self {
             walk_steps: Vec::new(),
-            max_steps: 5000,
             length_walk: 0.0,
             is_random_walk_done: false,
         }
