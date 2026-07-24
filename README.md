@@ -1,11 +1,7 @@
 # FractalWizard
 
-![Rust](https://img.shields.io/badge/Rust-2021-orange)
-![eframe](https://img.shields.io/badge/eframe-0.31-blue)
-
 Un éditeur d'images fractales interactif, rewrite en Rust du projet original [FractalWizard](https://github.com/ClementBRISSON/FractalWizard) en C++.
 
-<!-- TODO: screenshots des 4 éditeurs -->
 
 ## About
 
@@ -18,7 +14,7 @@ Un éditeur d'images fractales interactif, rewrite en Rust du projet original [F
 
 ## Installation
 
-**Rust toolchain requis.**
+**Rust toolchain requis.** ([rustup.rs](https://rustup.rs))
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
