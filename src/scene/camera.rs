@@ -10,6 +10,7 @@ pub struct Camera {
     pub magnetism: bool,
 
     pub display_points: bool,
+    pub display_lines: bool,
     pub point_size: f32,
     pub display_origin: bool,
 }
@@ -23,6 +24,7 @@ impl Default for Camera {
             display_grid: true,
             magnetism: true,
             display_points: true,
+            display_lines: true,
             point_size: 6.0,
             display_origin: true,
         }

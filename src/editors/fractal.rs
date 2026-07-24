@@ -1,4 +1,4 @@
-use eframe::egui::{self, Align2, Color32, FontId, pos2, Pos2, Shape, Vec2};
+use eframe::egui::{self, Align2, Color32, FontId, Id, pos2, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::fractal::generator::{self, FractalResult};
 use crate::fractal::random_walk::{self, RandomWalkStats};
@@ -79,6 +79,9 @@ pub struct FractalEditor {
     pub delta_intervals: u32,
 
     message: Option<String>,
+
+    left_panel_version: u32,
+    right_panel_version: u32,
 }
 
 pub enum ShapeWrapper {
@@ -140,7 +143,7 @@ impl Default for FractalEditor {
             current_step: 0,
             is_playing: false,
             fps: 60.0,
-            loop_mode: LoopMode::Repeat,
+            loop_mode: LoopMode::PlayOnceReset,
             animation_time: std::time::Instant::now(),
             ascending: true,
             camera: Camera::default(),
@@ -153,6 +156,8 @@ impl Default for FractalEditor {
             delta: Vec2::ZERO,
             delta_intervals: 1000,
             message: None,
+            left_panel_version: 0,
+            right_panel_version: 0,
         }
     }
 }
@@ -346,23 +351,39 @@ impl FractalEditor {
             self.render_menu(ui);
         });
 
-        egui::SidePanel::left("fractal_outliner")
+        let outliner_id = Id::new("fractal_outliner").with(self.left_panel_version);
+        egui::SidePanel::left(outliner_id)
             .resizable(true)
             .default_width(220.0)
             .show(ctx, |ui| {
                 self.render_outliner(ui);
             });
 
+        let left_resize_id = outliner_id.with("__resize");
+        if let Some(resp) = ctx.read_response(left_resize_id) {
+            if resp.hovered() && ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
+                self.left_panel_version = self.left_panel_version.wrapping_add(1);
+            }
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_canvas(ui);
         });
 
-        egui::SidePanel::right("fractal_properties")
+        let properties_id = Id::new("fractal_properties").with(self.right_panel_version);
+        egui::SidePanel::right(properties_id)
             .resizable(true)
             .default_width(220.0)
             .show(ctx, |ui| {
                 self.render_properties(ui);
             });
+
+        let right_resize_id = properties_id.with("__resize");
+        if let Some(resp) = ctx.read_response(right_resize_id) {
+            if resp.hovered() && ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
+                self.right_panel_version = self.right_panel_version.wrapping_add(1);
+            }
+        }
 
         egui::TopBottomPanel::bottom("fractal_player")
             .min_height(40.0)
@@ -374,11 +395,6 @@ impl FractalEditor {
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
-                if ui.button("Générer la fractale").clicked() {
-                    self.generate();
-                    ui.close_menu();
-                }
-                ui.separator();
                 if ui.button("Ouvrir (ftlfw)").clicked() {
                     if let Some((path, content)) = file_io::open_json("Ouvrir une fractale", "ftlfw") {
                         match serde_json::from_str::<FractalFile>(&content) {
@@ -456,6 +472,24 @@ impl FractalEditor {
                     }
                     ui.close_menu();
                 }
+                ui.separator();
+                if ui.button("Exporter (csv)").clicked() {
+                    if let Some(ref fractal) = self.fractal {
+                        let mut csv = String::from("x,y\n");
+                        for pt in &fractal.points {
+                            csv.push_str(&format!("{},{}\n", pt.x, pt.y));
+                        }
+                        let name = self.file_path.as_deref().and_then(|p| {
+                            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
+                        }).unwrap_or("fractale");
+                        if file_io::save_csv("Exporter les points", &format!("{name}.csv"), &csv) {
+                            self.message = Some(format!("{} points exportés", fractal.points.len()));
+                        }
+                    } else {
+                        self.message = Some("Aucune fractale à exporter".into());
+                    }
+                    ui.close_menu();
+                }
             });
 
             if ui.button("Générer").clicked() {
@@ -490,6 +524,7 @@ impl FractalEditor {
 
             ui.menu_button("Options", |ui| {
                 ui.checkbox(&mut self.camera.display_points, "Points");
+                ui.checkbox(&mut self.camera.display_lines, "Lignes");
                 ui.add(egui::Slider::new(&mut self.camera.point_size, 2.0..=25.0).text("Taille points"));
                 ui.checkbox(&mut self.camera.display_origin, "Origine");
 
@@ -531,18 +566,20 @@ impl FractalEditor {
         }
 
         let mut clicked: Option<usize> = None;
-        for (i, sim) in self.simulations.iter().enumerate() {
-            let label = format!(
-                "Sim {} : {} étapes, {}",
-                i + 1,
-                sim.steps(),
-                if sim.is_random_walk_done { "Fini" } else { "Pas fini" }
-            );
-            let selected = self.selected_simulation == Some(i);
-            if ui.selectable_label(selected, &label).clicked() {
-                clicked = Some(i);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (i, sim) in self.simulations.iter().enumerate() {
+                let label = format!(
+                    "Sim {} : {} étapes, {}",
+                    i + 1,
+                    sim.steps(),
+                    if sim.is_random_walk_done { "Fini" } else { "Pas fini" }
+                );
+                let selected = self.selected_simulation == Some(i);
+                if ui.selectable_label(selected, &label).clicked() {
+                    clicked = Some(i);
+                }
             }
-        }
+        });
 
         if let Some(idx) = clicked {
             self.selected_simulation = Some(idx);
@@ -601,7 +638,7 @@ impl FractalEditor {
             let lines = fractal.map(|f| f.lines.as_slice()).unwrap_or(&[]);
             let point_scale = fractal.map(|f| f.point_scale.as_slice()).unwrap_or(&[]);
 
-            if !lines.is_empty() {
+            if self.camera.display_lines && !lines.is_empty() {
                 self.canvas_renderer.draw_fractal_lines(
                     &self.camera, canvas_rect, points, lines, Color32::YELLOW, &mut shapes,
                 );

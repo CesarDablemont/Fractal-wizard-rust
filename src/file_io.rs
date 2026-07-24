@@ -77,3 +77,16 @@ pub fn save_json_path(title: &str, extension: &str, default_name: &str, data: &s
         None => false,
     }
 }
+
+pub fn save_csv(title: &str, default_name: &str, data: &str) -> bool {
+    let path = FileDialog::new()
+        .set_title(title)
+        .set_directory(default_dir())
+        .add_filter("CSV", &["csv"])
+        .set_file_name(default_name)
+        .save_file();
+    match path {
+        Some(p) => std::fs::write(&p, data).is_ok(),
+        None => false,
+    }
+}
