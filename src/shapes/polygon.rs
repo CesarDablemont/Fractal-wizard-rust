@@ -45,13 +45,9 @@ impl Polygon {
 }
 
 impl Shape for Polygon {
-    fn name(&self) -> &'static str { "cPolygon" }
     fn points(&self) -> &[Pos2] { &self.points }
     fn points_mut(&mut self) -> &mut Vec<Pos2> { &mut self.points }
     fn lines(&self) -> &[Line] { &self.lines }
-    fn set_lines(&mut self, lines: Vec<Line>) { self.lines = lines; }
-    fn is_closed(&self) -> bool { true }
-
     fn add_point(&mut self, p: Pos2) {
         self.points.push(p);
         self.rebuild_lines();

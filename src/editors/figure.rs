@@ -62,14 +62,6 @@ impl FigureShape {
         }
     }
 
-    #[allow(dead_code)]
-    fn type_name(&self) -> &'static str {
-        match self {
-            FigureShape::Polygon(_) => "cPolygon",
-            FigureShape::FreeLinear(_) => "cFreeLinearShape",
-        }
-    }
-
     fn hit_test(&self, world_pos: Pos2, point_size: f32) -> Option<usize> {
         let half = point_size / 2.0;
         self.points().iter().position(|&p| {

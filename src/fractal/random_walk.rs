@@ -45,10 +45,7 @@ fn run_single(
     max_steps: u64,
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
-    let mut info = RandomWalkInfo {
-        max_steps,
-        ..Default::default()
-    };
+    let mut info = RandomWalkInfo::default();
     info.walk_steps.push(start);
 
     let mut current = start;
