@@ -3,6 +3,13 @@ use eframe::egui::{pos2, Color32, Pos2, Rect, Shape, Stroke, Vec2};
 use eframe::egui::epaint::{Mesh, Vertex};
 use crate::scene::camera::Camera;
 use crate::scene::chunk_grid::ChunkGrid;
+
+pub struct FractalDrawData<'a> {
+    pub points: &'a [Pos2],
+    pub point_scale: &'a [f32],
+    pub colors: &'a [Option<Color32>],
+    pub highlight: Option<usize>,
+}
 use crate::types::Line;
 
 #[derive(Default)]
@@ -181,12 +188,11 @@ impl CanvasRenderer {
         &self,
         camera: &Camera,
         canvas_rect: Rect,
-        points: &[Pos2],
-        point_scale: &[f32],
-        colors: &[Option<Color32>],
-        highlight: Option<usize>,
+        data: &FractalDrawData<'_>,
         shapes: &mut Vec<Shape>,
     ) {
+        let FractalDrawData { points, point_scale, colors, highlight } = *data;
+
         if !camera.display_points || points.is_empty() {
             return;
         }

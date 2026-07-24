@@ -205,7 +205,7 @@ impl InitialEditor {
             shared::render_shape_at(
                 &self.model_points, &self.model_lines,
                 &self.camera, canvas_center,
-                p.translate, p.rotate, 1.0 / p.scale,
+                &shared::ShapeTransform { translate: p.translate, rotate: p.rotate, scale: 1.0 / p.scale },
                 color,
                 &mut shapes,
             );
@@ -213,18 +213,20 @@ impl InitialEditor {
 
         let translates: Vec<Pos2> = self.shapes.iter().map(|s| s.translate).collect();
 
+        let gizmo_ctx = shared::GizmoContext {
+            ui, camera: &self.camera, canvas_center,
+            show_gizmo: self.show_gizmo,
+            translates: &translates,
+        };
+
         shared::handle_draw_gizmo(
-            ui, &self.camera, canvas_center,
-            self.show_gizmo, self.gizmo_dragging,
-            &self.selected, &translates,
+            &gizmo_ctx, &self.selected, self.gizmo_dragging,
             &mut self.gizmo_hit, &mut shapes,
         );
 
         shared::handle_primary_click_selection(
-            &response, ui,
-            self.show_gizmo, self.gizmo_hit,
-            &translates, &self.camera, canvas_center,
-            self.camera.point_size,
+            &gizmo_ctx, &response,
+            self.gizmo_hit, self.camera.point_size,
             &mut self.selected,
         );
 

@@ -13,6 +13,20 @@ pub struct ModelData {
     pub lines: Vec<Line>,
 }
 
+pub struct ShapeTransform {
+    pub translate: Pos2,
+    pub rotate: f32,
+    pub scale: f32,
+}
+
+pub struct GizmoContext<'a> {
+    pub ui: &'a egui::Ui,
+    pub camera: &'a Camera,
+    pub canvas_center: Pos2,
+    pub show_gizmo: bool,
+    pub translates: &'a [Pos2],
+}
+
 pub fn default_model() -> (Vec<Pos2>, Vec<Line>) {
     let pts = vec![
         Pos2::new(-0.5, -0.5),
@@ -50,9 +64,7 @@ pub fn render_shape_at(
     model_lines: &[Line],
     camera: &Camera,
     canvas_center: Pos2,
-    translate: Pos2,
-    rotate: f32,
-    scale: f32,
+    transform: &ShapeTransform,
     color: Color32,
     shapes: &mut Vec<Shape>,
 ) {
@@ -62,7 +74,7 @@ pub fn render_shape_at(
     let stroke = Stroke::new(1.5, color);
     let transformed: Vec<Pos2> = model_points
         .iter()
-        .map(|&p| apply_transform(p, translate, rotate, Vec2::new(scale, scale)))
+        .map(|&p| apply_transform(p, transform.translate, transform.rotate, Vec2::new(transform.scale, transform.scale)))
         .collect();
     for &[a, b] in model_lines {
         if a < transformed.len() && b < transformed.len() {
@@ -131,46 +143,38 @@ pub fn handle_middle_pan(response: &egui::Response, ui: &egui::Ui, camera: &mut 
 }
 
 pub fn handle_draw_gizmo(
-    ui: &egui::Ui,
-    camera: &Camera,
-    canvas_center: Pos2,
-    show_gizmo: bool,
-    gizmo_dragging: bool,
+    ctx: &GizmoContext<'_>,
     selected: &[usize],
-    translates: &[Pos2],
+    gizmo_dragging: bool,
     gizmo_hit: &mut GizmoHit,
     shapes: &mut Vec<Shape>,
 ) {
-    if show_gizmo && !gizmo_dragging {
+    if ctx.show_gizmo && !gizmo_dragging {
         if let Some(&idx) = selected.first() {
-            if idx < translates.len() {
-                let pos = translates[idx];
-                if let Some(mouse) = ui.input(|i| i.pointer.hover_pos()) {
-                    *gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, camera, canvas_center);
+            if idx < ctx.translates.len() {
+                let pos = ctx.translates[idx];
+                if let Some(mouse) = ctx.ui.input(|i| i.pointer.hover_pos()) {
+                    *gizmo_hit = gizmo::Gizmo::hit_test(mouse, pos, ctx.camera, ctx.canvas_center);
                 }
-                gizmo::Gizmo::draw(pos, camera, canvas_center, *gizmo_hit, shapes);
+                gizmo::Gizmo::draw(pos, ctx.camera, ctx.canvas_center, *gizmo_hit, shapes);
             }
         }
     }
 }
 
 pub fn handle_primary_click_selection(
+    ctx: &GizmoContext<'_>,
     response: &egui::Response,
-    ui: &egui::Ui,
-    show_gizmo: bool,
     gizmo_hit: GizmoHit,
-    translates: &[Pos2],
-    camera: &Camera,
-    canvas_center: Pos2,
     half: f32,
     selected: &mut Vec<usize>,
 ) {
     if response.clicked_by(egui::PointerButton::Primary) {
-        if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-            if show_gizmo && gizmo_hit != GizmoHit::None {
+        if let Some(mouse) = ctx.ui.input(|i| i.pointer.interact_pos()) {
+            if ctx.show_gizmo && gizmo_hit != GizmoHit::None {
                 // gizmo click handled via drag
             } else {
-                let hit = iter_hit_test(translates, mouse, camera, canvas_center, half);
+                let hit = iter_hit_test(ctx.translates, mouse, ctx.camera, ctx.canvas_center, half);
                 if let Some(idx) = hit {
                     *selected = vec![idx];
                 } else {

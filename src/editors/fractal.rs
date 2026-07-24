@@ -4,7 +4,7 @@ use crate::fractal::generator::{self, FractalResult};
 use crate::fractal::random_walk::{self, RandomWalkStats};
 use crate::heatmap::{self, heatmap_color};
 use crate::scene::camera::Camera;
-use crate::scene::canvas::CanvasRenderer;
+use crate::scene::canvas::{self, CanvasRenderer};
 use crate::scene::chunk_grid::ChunkGrid;
 use crate::shapes::polygon::Polygon;
 use crate::shapes::free_linear::FreeLinearShape;
@@ -192,16 +192,16 @@ impl FractalEditor {
         };
 
         let start = std::time::Instant::now();
-        let result = generator::generate_fractal(
-            &get_points,
-            &get_lines,
-            &self.pattern_data,
-            &initial_scaled,
-            self.iterations,
-            self.regroup,
-            self.display_parent,
-            if self.add_delta { self.delta.x.abs() } else { 0.0 },
-        );
+        let result = generator::generate_fractal(&generator::FractalConfig {
+            get_points: &get_points,
+            get_lines: &get_lines,
+            pattern: &self.pattern_data,
+            initial: &initial_scaled,
+            iterations: self.iterations,
+            regroup: self.regroup,
+            display_parent: self.display_parent,
+            delta_radius: if self.add_delta { self.delta.x.abs() } else { 0.0 },
+        });
         let elapsed = start.elapsed();
 
         self.message = Some(format!("Générée en {elapsed:.2?}"));
@@ -621,7 +621,9 @@ impl FractalEditor {
                 match self.render_mode {
                     RenderMode::Normal => {
                         self.canvas_renderer.draw_fractal_points(
-                            &self.camera, canvas_rect, points, point_scale, &[], highlight, &mut shapes,
+                            &self.camera, canvas_rect,
+                            &canvas::FractalDrawData { points, point_scale, colors: &[], highlight },
+                            &mut shapes,
                         );
                     }
                     RenderMode::GlobalHeatMap | RenderMode::IndividualHeatMap => {
@@ -631,7 +633,9 @@ impl FractalEditor {
                         };
                         let colors: Vec<Option<Color32>> = heatmap.iter().map(|&s| Some(heatmap_color(s))).collect();
                         self.canvas_renderer.draw_fractal_points(
-                            &self.camera, canvas_rect, points, point_scale, &colors, highlight, &mut shapes,
+                            &self.camera, canvas_rect,
+                            &canvas::FractalDrawData { points, point_scale, colors: &colors, highlight },
+                            &mut shapes,
                         );
 
                         if self.show_heat_score {
