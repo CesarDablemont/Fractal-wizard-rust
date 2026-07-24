@@ -2,6 +2,16 @@
 
 ## Bug Fixes
 
+- Remove all #[allow]([`0abdbb9`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/0abdbb981f7f43482aabb5978b15cd34ca46b202))
+
+## Features
+
+- Add release profile and clippy lints([`74454fe`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/74454fed3da3b339b013a5c609f20b901df09de0))
+- Add release profile, clippy lints and refactor([`bf6981b`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/bf6981b125c80137f15bc646a23715e5d264ef86))
+
+
+## Bug Fixes
+
 - **CI:** Final style fix([`f2eddaa`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/f2eddaacb163af2498072538ad736d72fd5ad78d))
 
 
