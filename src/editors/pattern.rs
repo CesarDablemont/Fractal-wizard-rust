@@ -114,7 +114,7 @@ impl PatternEditor {
                                 self.recalculate_dimension();
                                 self.message = Some("Pattern chargé".into());
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -137,7 +137,7 @@ impl PatternEditor {
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un modèle", "firfw") {
                         match self.load_model(&content) {
                             Ok(()) => self.message = Some("Modèle chargé".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -150,11 +150,10 @@ impl PatternEditor {
                 ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
             });
 
-            if !self.patterns.is_empty() {
-                if ui.button("➡ Envoyer à Fractale").clicked() {
+            if !self.patterns.is_empty()
+                && ui.button("➡ Envoyer à Fractale").clicked() {
                     self.transfer_patterns = Some(self.patterns.clone());
                 }
-            }
 
             if ui.button("Nouveau pattern").clicked() {
                 self.patterns.push(ShapePatternData::default());

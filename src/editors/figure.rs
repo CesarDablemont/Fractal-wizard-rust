@@ -173,7 +173,7 @@ impl FigureEditor {
                                 });
                                 self.message = Some("Figure chargée".into());
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -196,7 +196,7 @@ impl FigureEditor {
                         let name = self.file_path.as_deref().and_then(|p| {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                         }).unwrap_or("figure");
-                        if file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{}.firfw", name), &json) {
+                        if file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json) {
                             self.message = Some("Figure enregistrée".into());
                         }
                     }
@@ -383,7 +383,7 @@ impl FigureEditor {
                             self.selected_point = shape.hit_test(world_pos, self.camera.point_size);
                         }
                     }
-                    _ => {}
+                    EditorState::SelectPointSimulation => {}
                 }
             }
         }

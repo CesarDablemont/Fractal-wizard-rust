@@ -105,7 +105,7 @@ impl CanvasRenderer {
         let viewport = camera.visible_world_rect(canvas_rect, center);
 
         let needs_rebuild = self.mesh_dirty
-            || self.cached_lines.as_ref().map_or(true, |c| {
+            || self.cached_lines.as_ref().is_none_or(|c| {
                 c.camera_pos != camera.position
                     || c.camera_zoom != camera.zoom
                     || c.canvas_center != center

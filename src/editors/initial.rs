@@ -93,7 +93,7 @@ impl InitialEditor {
                                 self.shapes = data;
                                 self.message = Some("Fichier initial chargé".into());
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -112,7 +112,7 @@ impl InitialEditor {
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un modèle", "firfw") {
                         match self.load_model(&content) {
                             Ok(()) => self.message = Some("Modèle chargé".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -124,11 +124,10 @@ impl InitialEditor {
                 ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
             });
 
-            if !self.shapes.is_empty() {
-                if ui.button("➡ Envoyer à Fractale").clicked() {
+            if !self.shapes.is_empty()
+                && ui.button("➡ Envoyer à Fractale").clicked() {
                     self.transfer_shapes = Some(self.shapes.clone());
                 }
-            }
 
             if ui.button("Nouveau").clicked() {
                 self.shapes.push(ShapePatternData::default());

@@ -42,6 +42,7 @@ impl Default for ShapePatternData {
 #[derive(Clone, Debug)]
 pub struct RandomWalkInfo {
     pub walk_steps: Vec<usize>,
+    #[allow(dead_code)]
     pub max_steps: u64,
     pub length_walk: f32,
     pub is_random_walk_done: bool,

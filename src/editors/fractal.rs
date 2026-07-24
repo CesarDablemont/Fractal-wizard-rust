@@ -172,10 +172,10 @@ impl FractalEditor {
             return;
         }
 
-        let pre_scale = if !self.pattern_data.is_empty() {
-            self.pattern_data[0].scale.powf(self.iterations as f32)
-        } else {
+        let pre_scale = if self.pattern_data.is_empty() {
             1.0
+        } else {
+            self.pattern_data[0].scale.powf(self.iterations as f32)
         };
         let mut initial_scaled = self.initial_data.clone();
         for s in &mut initial_scaled {
@@ -204,7 +204,7 @@ impl FractalEditor {
         );
         let elapsed = start.elapsed();
 
-        self.message = Some(format!("Générée en {:.2?}", elapsed));
+        self.message = Some(format!("Générée en {elapsed:.2?}"));
 
         self.fractal = Some(result);
         self.canvas_renderer.rebuild_chunks = true;
@@ -400,7 +400,7 @@ impl FractalEditor {
                                 self.message = Some("Fractale chargée".into());
                                 self.canvas_renderer.rebuild_chunks = true;
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -423,7 +423,7 @@ impl FractalEditor {
                     let name = self.file_path.as_deref().and_then(|p| {
                         std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                     }).unwrap_or("fractale");
-                    if file_io::save_json_path("Enregistrer la fractale", "ftlfw", &format!("{}.ftlfw", name), &json) {
+                    if file_io::save_json_path("Enregistrer la fractale", "ftlfw", &format!("{name}.ftlfw"), &json) {
                         self.message = Some("Fractale enregistrée".into());
                     }
                     ui.close_menu();
@@ -433,7 +433,7 @@ impl FractalEditor {
                     if let Some((_path, content)) = file_io::open_json("Importer une figure", "firfw") {
                         match self.import_firfw(&content) {
                             Ok(()) => self.message = Some("Figure importée".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -442,7 +442,7 @@ impl FractalEditor {
                     if let Some((_path, content)) = file_io::open_json("Importer un pattern", "ptnfw") {
                         match self.import_ptnfw(&content) {
                             Ok(()) => self.message = Some("Pattern importé".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -451,7 +451,7 @@ impl FractalEditor {
                     if let Some((_path, content)) = file_io::open_json("Importer une figure initiale", "filfw") {
                         match self.import_filfw(&content) {
                             Ok(()) => self.message = Some("Figure initiale importée".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {}", e)),
+                            Err(e) => self.message = Some(format!("Erreur: {e}")),
                         }
                     }
                     ui.close_menu();
@@ -467,11 +467,11 @@ impl FractalEditor {
             ui.menu_button("Simulation", |ui| {
                 ui.checkbox(&mut self.allow_min, "Min steps");
                 if self.allow_min {
-                    ui.add(egui::DragValue::new(&mut self.min_steps).range(1..=1000000));
+                    ui.add(egui::DragValue::new(&mut self.min_steps).range(1..=1_000_000));
                 }
                 ui.checkbox(&mut self.allow_max, "Max steps");
                 if self.allow_max {
-                    ui.add(egui::DragValue::new(&mut self.max_steps).range(1..=1000000));
+                    ui.add(egui::DragValue::new(&mut self.max_steps).range(1..=1_000_000));
                 }
                 ui.add(egui::DragValue::new(&mut self.simulation_count).range(1..=10000).prefix("Nb simulations: "));
 
@@ -639,7 +639,7 @@ impl FractalEditor {
                             if heatmap.len() == points.len() {
                                 for (i, &score) in heatmap.iter().enumerate() {
                                     let screen = self.camera.world_to_screen(points[i], center);
-                                    let text = format!("{:.2}", score);
+                                    let text = format!("{score:.2}");
                                     painter.text(
                                         screen + Vec2::new(0.0, self.camera.point_size / 2.0 + 2.0),
                                         Align2::CENTER_TOP,

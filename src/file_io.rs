@@ -57,7 +57,7 @@ pub fn save_json(title: &str, extension: &str, data: &str) -> bool {
         .set_title(title)
         .set_directory(default_dir())
         .add_filter("JSON", &[extension, "json"])
-        .set_file_name(&format!("untitled.{}", extension))
+        .set_file_name(format!("untitled.{extension}"))
         .save_file();
     match path {
         Some(p) => std::fs::write(&p, data).is_ok(),

@@ -105,7 +105,7 @@ pub fn generate_fractal(
 }
 
 fn point_key(p: Pos2) -> u64 {
-    (p.x.to_bits() as u64) ^ ((p.y.to_bits() as u64) << 32)
+    u64::from(p.x.to_bits()) ^ (u64::from(p.y.to_bits()) << 32)
 }
 
 fn find_or_add_point(
