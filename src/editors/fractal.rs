@@ -83,6 +83,7 @@ pub struct FractalEditor {
 
     pub density_sources: Vec<DensitySource>,
     pub selected_density_source: Option<usize>,
+    dragging_density_source: Option<usize>,
 
     message: Option<String>,
 
@@ -164,6 +165,7 @@ impl Default for FractalEditor {
             delta_intervals: 1000,
             density_sources: Vec::new(),
             selected_density_source: None,
+            dragging_density_source: None,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -566,10 +568,10 @@ impl FractalEditor {
                 for (i, src) in self.density_sources.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
                         let label = if src.force >= 0.0 { "Attraction" } else { "Répulsion" };
-                        if ui.selectable_label(self.selected_density_source == Some(i), format!("{}##{}", label, i)).clicked() {
+                        if ui.selectable_label(self.selected_density_source == Some(i), format!("{} {}", label, i + 1)).clicked() {
                             self.selected_density_source = Some(i);
                         }
-                        if ui.small_button("✕").clicked() {
+                        if ui.small_button("x").clicked() {
                             remove_idx = Some(i);
                         }
                     });
@@ -689,7 +691,40 @@ impl FractalEditor {
         shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
         shared::handle_middle_pan(&response, ui, &mut self.camera);
 
-        if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() {
+        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
+        let pointer_released = ui.input(|i| i.pointer.any_released());
+
+        // Start drag density source on press
+        if pointer_pressed && self.dragging_density_source.is_none() {
+            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
+                let world = self.camera.screen_to_world(mouse, canvas_center);
+                let hit_radius = 15.0 / self.camera.zoom;
+                for (i, src) in self.density_sources.iter().enumerate() {
+                    let dx = src.position.x - world.x;
+                    let dy = src.position.y - world.y;
+                    if (dx * dx + dy * dy) <= hit_radius * hit_radius {
+                        self.selected_density_source = Some(i);
+                        self.dragging_density_source = Some(i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Continue drag density source
+        if let Some(idx) = self.dragging_density_source {
+            if pointer_released {
+                self.dragging_density_source = None;
+            } else if response.dragged_by(egui::PointerButton::Primary) {
+                let delta = ui.input(|i| i.pointer.delta());
+                if delta != Vec2::ZERO {
+                    let world_delta = self.camera.screen_delta_to_world(delta);
+                    self.density_sources[idx].position += world_delta;
+                }
+            }
+        }
+
+        if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() && self.dragging_density_source.is_none() {
             self.camera.pan(ui.input(|i| i.pointer.delta()));
         }
 
