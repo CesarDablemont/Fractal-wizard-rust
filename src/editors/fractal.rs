@@ -812,14 +812,14 @@ impl FractalEditor {
             let center = self.camera.world_to_screen(src.position, canvas_center);
             let screen_radius = src.radius * self.camera.zoom;
             let color = if src.force >= 0.0 {
-                Color32::from_rgba_premultiplied(0, 180, 0, 40)
+                Color32::from_rgba_premultiplied(0, 180, 0, 20)
             } else {
-                Color32::from_rgba_premultiplied(180, 0, 0, 40)
+                Color32::from_rgba_premultiplied(180, 0, 0, 20)
             };
             let stroke_color = if src.force >= 0.0 {
-                Color32::from_rgba_premultiplied(0, 180, 0, 120)
+                Color32::from_rgba_premultiplied(0, 180, 0, 60)
             } else {
-                Color32::from_rgba_premultiplied(180, 0, 0, 120)
+                Color32::from_rgba_premultiplied(180, 0, 0, 60)
             };
             let stroke = egui::Stroke::new(1.5, stroke_color);
             shapes.push(Shape::Circle(egui::epaint::CircleShape {
