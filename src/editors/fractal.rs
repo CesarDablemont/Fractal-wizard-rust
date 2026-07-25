@@ -9,7 +9,7 @@ use crate::scene::chunk_grid::ChunkGrid;
 use crate::shapes::polygon::Polygon;
 use crate::shapes::free_linear::FreeLinearShape;
 use crate::shapes::shape::Shape as ShapeTrait;
-use crate::types::{EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
+use crate::types::{DensitySource, EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
 use crate::file_io;
 use super::shared;
 
@@ -23,6 +23,8 @@ struct FractalFile {
     add_delta: bool,
     delta: [f32; 2],
     delta_intervals: u32,
+    #[serde(default)]
+    density_sources: Vec<DensitySource>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -54,6 +56,7 @@ pub struct FractalEditor {
     pub max_steps: u64,
     pub allow_min: bool,
     pub allow_max: bool,
+    pub beta: f32,
 
     pub global_heatmap: Vec<f32>,
     pub individual_heatmap: Vec<f32>,
@@ -77,6 +80,10 @@ pub struct FractalEditor {
     pub add_delta: bool,
     pub delta: Vec2,
     pub delta_intervals: u32,
+
+    pub density_sources: Vec<DensitySource>,
+    pub selected_density_source: Option<usize>,
+    dragging_density_source: Option<usize>,
 
     message: Option<String>,
 
@@ -136,6 +143,7 @@ impl Default for FractalEditor {
             max_steps: 5000,
             allow_min: true,
             allow_max: true,
+            beta: 0.0,
             global_heatmap: Vec::new(),
             individual_heatmap: Vec::new(),
             render_mode: RenderMode::Normal,
@@ -155,6 +163,9 @@ impl Default for FractalEditor {
             add_delta: false,
             delta: Vec2::ZERO,
             delta_intervals: 1000,
+            density_sources: Vec::new(),
+            selected_density_source: None,
+            dragging_density_source: None,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -206,6 +217,7 @@ impl FractalEditor {
             regroup: self.regroup,
             display_parent: self.display_parent,
             delta_radius: if self.add_delta { self.delta.x.abs() } else { 0.0 },
+            density_sources: &self.density_sources,
         });
         let elapsed = start.elapsed();
 
@@ -316,6 +328,7 @@ impl FractalEditor {
             self.simulation_count,
             if self.allow_min { self.min_steps } else { 0 },
             if self.allow_max { self.max_steps } else { u64::MAX },
+            self.beta,
         );
 
         self.simulations = sims;
@@ -413,6 +426,8 @@ impl FractalEditor {
                                 self.add_delta = data.add_delta;
                                 self.delta = Vec2::new(data.delta[0], data.delta[1]);
                                 self.delta_intervals = data.delta_intervals;
+                                self.density_sources = data.density_sources;
+                                self.selected_density_source = None;
                                 self.message = Some("Fractale chargée".into());
                                 self.canvas_renderer.rebuild_chunks = true;
                             }
@@ -434,6 +449,7 @@ impl FractalEditor {
                         add_delta: self.add_delta,
                         delta: [self.delta.x, self.delta.y],
                         delta_intervals: self.delta_intervals,
+                        density_sources: self.density_sources.clone(),
                     };
                     let json = serde_json::to_string_pretty(&data).unwrap();
                     let name = self.file_path.as_deref().and_then(|p| {
@@ -508,6 +524,10 @@ impl FractalEditor {
                     ui.add(egui::DragValue::new(&mut self.max_steps).range(1..=1_000_000));
                 }
                 ui.add(egui::DragValue::new(&mut self.simulation_count).range(1..=10000).prefix("Nb simulations: "));
+                ui.horizontal(|ui| {
+                    ui.label("Beta (distance):");
+                    ui.add(egui::DragValue::new(&mut self.beta).speed(0.1).range(0.0..=10.0));
+                });
 
                 if ui.button("Sélectionner point de départ").clicked() {
                     self.state = EditorState::SelectPointSimulation;
@@ -536,6 +556,51 @@ impl FractalEditor {
                 ui.checkbox(&mut self.add_delta, "Incertitude");
                 if self.add_delta {
                     ui.add(egui::DragValue::new(&mut self.delta.x).speed(0.1).prefix("Rayon:"));
+                }
+
+                ui.separator();
+                ui.label("Champ de densité");
+                if ui.button("+ Ajouter source").clicked() {
+                    self.density_sources.push(DensitySource::default());
+                    self.selected_density_source = Some(self.density_sources.len() - 1);
+                }
+                let mut remove_idx = None;
+                for (i, src) in self.density_sources.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        let label = if src.force >= 0.0 { "Attraction" } else { "Répulsion" };
+                        if ui.selectable_label(self.selected_density_source == Some(i), format!("{} {}", label, i + 1)).clicked() {
+                            self.selected_density_source = Some(i);
+                        }
+                        if ui.small_button("x").clicked() {
+                            remove_idx = Some(i);
+                        }
+                    });
+                    if self.selected_density_source == Some(i) {
+                        ui.indent("density_src_indent", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("X:");
+                                ui.add(egui::DragValue::new(&mut src.position.x).speed(1.0));
+                                ui.label("Y:");
+                                ui.add(egui::DragValue::new(&mut src.position.y).speed(1.0));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Rayon:");
+                                ui.add(egui::DragValue::new(&mut src.radius).speed(1.0).range(1.0..=10000.0));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Force:");
+                                ui.add(egui::DragValue::new(&mut src.force).speed(1.0).range(-100.0..=100.0));
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label("Exposant:");
+                                ui.add(egui::DragValue::new(&mut src.exponent).speed(0.1).range(0.1..=5.0));
+                            });
+                        });
+                    }
+                }
+                if let Some(idx) = remove_idx {
+                    self.density_sources.remove(idx);
+                    self.selected_density_source = None;
                 }
 
                 if self.fractal.is_some() {
@@ -626,7 +691,40 @@ impl FractalEditor {
         shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
         shared::handle_middle_pan(&response, ui, &mut self.camera);
 
-        if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() {
+        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
+        let pointer_released = ui.input(|i| i.pointer.any_released());
+
+        // Start drag density source on press
+        if pointer_pressed && self.dragging_density_source.is_none() {
+            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
+                let world = self.camera.screen_to_world(mouse, canvas_center);
+                let hit_radius = 15.0 / self.camera.zoom;
+                for (i, src) in self.density_sources.iter().enumerate() {
+                    let dx = src.position.x - world.x;
+                    let dy = src.position.y - world.y;
+                    if (dx * dx + dy * dy) <= hit_radius * hit_radius {
+                        self.selected_density_source = Some(i);
+                        self.dragging_density_source = Some(i);
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Continue drag density source
+        if let Some(idx) = self.dragging_density_source {
+            if pointer_released {
+                self.dragging_density_source = None;
+            } else if response.dragged_by(egui::PointerButton::Primary) {
+                let delta = ui.input(|i| i.pointer.delta());
+                if delta != Vec2::ZERO {
+                    let world_delta = self.camera.screen_delta_to_world(delta);
+                    self.density_sources[idx].position += world_delta;
+                }
+            }
+        }
+
+        if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() && self.dragging_density_source.is_none() {
             self.camera.pan(ui.input(|i| i.pointer.delta()));
         }
 
@@ -708,6 +806,36 @@ impl FractalEditor {
                     }
                 }
             }
+        }
+
+        for (i, src) in self.density_sources.iter().enumerate() {
+            let center = self.camera.world_to_screen(src.position, canvas_center);
+            let screen_radius = src.radius * self.camera.zoom;
+            let color = if src.force >= 0.0 {
+                Color32::from_rgba_premultiplied(0, 180, 0, 20)
+            } else {
+                Color32::from_rgba_premultiplied(180, 0, 0, 20)
+            };
+            let stroke_color = if src.force >= 0.0 {
+                Color32::from_rgba_premultiplied(0, 180, 0, 60)
+            } else {
+                Color32::from_rgba_premultiplied(180, 0, 0, 60)
+            };
+            let stroke = egui::Stroke::new(1.5, stroke_color);
+            shapes.push(Shape::Circle(egui::epaint::CircleShape {
+                center,
+                radius: screen_radius,
+                fill: color,
+                stroke,
+            }));
+            let label = if src.force >= 0.0 { "A" } else { "R" };
+            painter.text(
+                center,
+                Align2::CENTER_CENTER,
+                format!("{}{}", label, i + 1),
+                FontId::proportional(12.0),
+                Color32::WHITE,
+            );
         }
 
         painter.extend(shapes);

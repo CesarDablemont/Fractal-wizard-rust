@@ -105,3 +105,23 @@ impl LoopMode {
 }
 
 pub type Line = [usize; 2];
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DensitySource {
+    #[serde(with = "pos2_serde")]
+    pub position: Pos2,
+    pub radius: f32,
+    pub force: f32,
+    pub exponent: f32,
+}
+
+impl Default for DensitySource {
+    fn default() -> Self {
+        Self {
+            position: Pos2::ZERO,
+            radius: 100.0,
+            force: 1.0,
+            exponent: 1.0,
+        }
+    }
+}

@@ -85,17 +85,63 @@ pub fn render_shape_at(
     }
 }
 
+pub struct OtherTransform {
+    pub translate: Pos2,
+    pub rotate: f32,
+    pub scale: f32,
+}
+
 pub fn snap_translation(
     model_points: &[Pos2],
     current_translate: Pos2,
     rotate: f32,
     scale: f32,
     zoom: f32,
+    others: &[OtherTransform],
 ) -> Vec2 {
     let spacing = Camera::choose_grid_spacing(zoom);
     let s = scale;
+
+    // Compute transformed model bounding box size for dynamic threshold
+    let model_size = if model_points.len() >= 2 {
+        let transformed: Vec<Pos2> = model_points
+            .iter()
+            .map(|&mp| apply_transform(mp, current_translate, rotate, Vec2::new(s, s)))
+            .collect();
+        let min_x = transformed.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+        let max_x = transformed.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+        let min_y = transformed.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+        let max_y = transformed.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+        (max_x - min_x).max(max_y - min_y)
+    } else {
+        spacing
+    };
+    let threshold_sq = (model_size * 0.2).powi(2);
+
+    // First pass: try to snap to other pattern points (priority)
     let mut best_dist = f32::MAX;
     let mut best_offset = Vec2::ZERO;
+    for other in others {
+        let os = other.scale;
+        for &mp in model_points {
+            let tp = apply_transform(mp, current_translate, rotate, Vec2::new(s, s));
+            for &omp in model_points {
+                let target = apply_transform(omp, other.translate, other.rotate, Vec2::new(os, os));
+                let dx = target.x - tp.x;
+                let dy = target.y - tp.y;
+                let d = dx * dx + dy * dy;
+                if d < best_dist && d < threshold_sq {
+                    best_dist = d;
+                    best_offset = Vec2::new(dx, dy);
+                }
+            }
+        }
+    }
+    if best_dist < f32::MAX {
+        return best_offset;
+    }
+
+    // Second pass: snap to grid (fallback)
     for &mp in model_points {
         let tp = apply_transform(mp, current_translate, rotate, Vec2::new(s, s));
         let sx = (tp.x / spacing).round() * spacing;
@@ -103,11 +149,12 @@ pub fn snap_translation(
         let dx = sx - tp.x;
         let dy = sy - tp.y;
         let d = dx * dx + dy * dy;
-        if d < best_dist {
+        if d < best_dist && d < threshold_sq {
             best_dist = d;
             best_offset = Vec2::new(dx, dy);
         }
     }
+
     best_offset
 }
 

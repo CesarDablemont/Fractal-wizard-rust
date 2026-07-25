@@ -241,9 +241,20 @@ impl InitialEditor {
                     if let Some(&idx) = self.selected.first() {
                         if idx < self.shapes.len() {
                             let s = &self.shapes[idx];
+                            let others: Vec<shared::OtherTransform> = self.shapes
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| *i != idx)
+                                .map(|(_, s)| shared::OtherTransform {
+                                    translate: s.translate,
+                                    rotate: s.rotate,
+                                    scale: 1.0 / s.scale,
+                                })
+                                .collect();
                             let offset = shared::snap_translation(
                                 &self.model_points, s.translate, s.rotate, 1.0 / s.scale,
                                 self.camera.zoom,
+                                &others,
                             );
                             self.shapes[idx].translate += offset;
                         }

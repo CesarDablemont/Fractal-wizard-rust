@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use eframe::egui::{pos2, Pos2, Vec2};
 use crate::shapes::shape::apply_transform;
-use crate::types::{Line, ShapePatternData};
+use crate::types::{DensitySource, Line, ShapePatternData};
 use super::dimension;
 
 pub struct FractalResult {
@@ -21,12 +21,13 @@ pub struct FractalConfig<'a> {
     pub regroup: bool,
     pub display_parent: bool,
     pub delta_radius: f32,
+    pub density_sources: &'a [DensitySource],
 }
 
 pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
     let FractalConfig {
         get_points, get_lines, pattern, initial,
-        iterations, regroup, display_parent, delta_radius,
+        iterations, regroup, display_parent, delta_radius, density_sources,
     } = config;
 
     let mut current = initial.to_vec();
@@ -100,6 +101,10 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
         }
     }
 
+    if !density_sources.is_empty() {
+        apply_density_field(&mut final_points, density_sources);
+    }
+
     let box_counting = dimension::box_counting(&final_points, *iterations);
 
     FractalResult {
@@ -146,4 +151,24 @@ fn find_or_add_point(
     scales.push(scale);
     map.insert(key, idx);
     idx
+}
+
+fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
+    for p in points.iter_mut() {
+        for source in sources {
+            let dx = source.position.x - p.x;
+            let dy = source.position.y - p.y;
+            let dist_sq = dx * dx + dy * dy;
+            let r = source.radius;
+            if dist_sq < r * r && dist_sq > 0.0 {
+                let dist = dist_sq.sqrt();
+                let t = dist / r;
+                let influence = t.powf(source.exponent) * source.force;
+                let nx = dx / dist;
+                let ny = dy / dist;
+                p.x += nx * influence;
+                p.y += ny * influence;
+            }
+        }
+    }
 }

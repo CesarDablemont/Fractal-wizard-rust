@@ -18,19 +18,20 @@ pub fn run_simulations(
     count: u32,
     min_steps: u64,
     max_steps: u64,
+    beta: f32,
 ) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
     let mut simulations = Vec::with_capacity(count as usize);
     let mut rng = rand::rng();
 
     for _ in 0..count {
-        let sim = run_single(points, lines, start_index, max_steps, &mut rng);
+        let sim = run_single(points, lines, start_index, max_steps, beta, &mut rng);
         simulations.push(sim);
     }
 
     if min_steps > 0 {
         for sim in &mut simulations {
             while sim.steps() < min_steps as usize {
-                *sim = run_single(points, lines, start_index, max_steps, &mut rng);
+                *sim = run_single(points, lines, start_index, max_steps, beta, &mut rng);
             }
         }
     }
@@ -43,6 +44,7 @@ fn run_single(
     lines: &[Line],
     start: usize,
     max_steps: u64,
+    beta: f32,
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
     let mut info = RandomWalkInfo::default();
@@ -60,11 +62,34 @@ fn run_single(
             break;
         }
 
-        let next_idx = rng.random_range(0..connected.len());
-        let next = connected[next_idx];
+        let next = if beta == 0.0 || connected.len() == 1 {
+            connected[rng.random_range(0..connected.len())]
+        } else {
+            let cur = points[current];
+            let weights: Vec<f32> = connected
+                .iter()
+                .map(|&idx| {
+                    let dx = points[idx].x - cur.x;
+                    let dy = points[idx].y - cur.y;
+                    let dist = (dx * dx + dy * dy).sqrt().max(0.001);
+                    (-beta * dist).exp()
+                })
+                .collect();
+            let total: f32 = weights.iter().sum();
+            let mut r = rng.random::<f32>() * total;
+            let mut chosen = connected[0];
+            for (i, &w) in weights.iter().enumerate() {
+                r -= w;
+                if r <= 0.0 {
+                    chosen = connected[i];
+                    break;
+                }
+            }
+            chosen
+        };
 
-        let dx = points[next].x - points[info.walk_steps[info.walk_steps.len() - 1]].x;
-        let dy = points[next].y - points[info.walk_steps[info.walk_steps.len() - 1]].y;
+        let dx = points[next].x - points[current].x;
+        let dy = points[next].y - points[current].y;
         info.length_walk += (dx * dx + dy * dy).sqrt();
 
         info.walk_steps.push(next);

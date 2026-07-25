@@ -24,6 +24,7 @@ pub struct FigureEditor {
     gizmo_hit: GizmoHit,
     gizmo_dragging: bool,
     show_gizmo: bool,
+    equilateral_mode: bool,
     message: Option<String>,
 }
 
@@ -110,6 +111,7 @@ impl Default for FigureEditor {
             gizmo_hit: GizmoHit::None,
             gizmo_dragging: false,
             show_gizmo: true,
+            equilateral_mode: false,
             message: None,
         }
     }
@@ -138,6 +140,13 @@ impl FigureEditor {
                 if ui.button("Nouveau Libre").clicked() {
                     self.shape = Some(FigureShape::FreeLinear(FreeLinearShape::new()));
                     self.figure_type = FigureType::FreeLinear;
+                    self.state = EditorState::Add;
+                    ui.close_menu();
+                }
+                if ui.button("Nouveau Triangle équilatéral").clicked() {
+                    self.shape = Some(FigureShape::Polygon(Polygon::new()));
+                    self.figure_type = FigureType::Polygon;
+                    self.equilateral_mode = true;
                     self.state = EditorState::Add;
                     ui.close_menu();
                 }
@@ -368,6 +377,22 @@ impl FigureEditor {
                             let snapped = self.camera.snap(world_pos);
                             shape.add_point(snapped);
                             self.selected_point = Some(shape.points().len() - 1);
+
+                            if self.equilateral_mode && shape.points().len() == 2 {
+                                let p1 = shape.points()[0];
+                                let p2 = shape.points()[1];
+                                let dx = p2.x - p1.x;
+                                let dy = p2.y - p1.y;
+                                let mid = Pos2::new((p1.x + p2.x) / 2.0, (p1.y + p2.y) / 2.0);
+                                let h = (dx * dx + dy * dy).sqrt() * 1.7320508 / 2.0;
+                                let nx = -dy / (dx * dx + dy * dy).sqrt();
+                                let ny = dx / (dx * dx + dy * dy).sqrt();
+                                let p3 = Pos2::new(mid.x + nx * h, mid.y + ny * h);
+                                shape.add_point(p3);
+                                self.selected_point = Some(2);
+                                self.equilateral_mode = false;
+                                self.state = EditorState::Mouse;
+                            }
                         }
                     }
                     EditorState::Mouse => {
