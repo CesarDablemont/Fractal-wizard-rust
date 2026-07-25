@@ -163,7 +163,7 @@ fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
             if dist_sq < r * r && dist_sq > 0.0 {
                 let dist = dist_sq.sqrt();
                 let t = dist / r;
-                let influence = (1.0 - t).powf(source.exponent) * source.force;
+                let influence = t.powf(source.exponent) * source.force;
                 let nx = dx / dist;
                 let ny = dy / dist;
                 p.x += nx * influence;
