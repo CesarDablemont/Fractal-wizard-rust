@@ -56,6 +56,7 @@ pub struct FractalEditor {
     pub max_steps: u64,
     pub allow_min: bool,
     pub allow_max: bool,
+    pub beta: f32,
 
     pub global_heatmap: Vec<f32>,
     pub individual_heatmap: Vec<f32>,
@@ -141,6 +142,7 @@ impl Default for FractalEditor {
             max_steps: 5000,
             allow_min: true,
             allow_max: true,
+            beta: 0.0,
             global_heatmap: Vec::new(),
             individual_heatmap: Vec::new(),
             render_mode: RenderMode::Normal,
@@ -324,6 +326,7 @@ impl FractalEditor {
             self.simulation_count,
             if self.allow_min { self.min_steps } else { 0 },
             if self.allow_max { self.max_steps } else { u64::MAX },
+            self.beta,
         );
 
         self.simulations = sims;
@@ -519,6 +522,10 @@ impl FractalEditor {
                     ui.add(egui::DragValue::new(&mut self.max_steps).range(1..=1_000_000));
                 }
                 ui.add(egui::DragValue::new(&mut self.simulation_count).range(1..=10000).prefix("Nb simulations: "));
+                ui.horizontal(|ui| {
+                    ui.label("Beta (distance):");
+                    ui.add(egui::DragValue::new(&mut self.beta).speed(0.1).range(0.0..=10.0));
+                });
 
                 if ui.button("Sélectionner point de départ").clicked() {
                     self.state = EditorState::SelectPointSimulation;
