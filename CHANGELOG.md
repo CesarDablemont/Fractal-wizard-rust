@@ -2,6 +2,24 @@
 
 ## Bug Fixes
 
+- Magnetic placement snap to other pattern points([`0c23567`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/0c23567fd876a1f1fa1e5b8ad7218a87b4f9759c))
+- **UI:** Density source deplacement([`f00871d`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/f00871dd49483fbfb0ed87f03697479816523e4a))
+- Density field formula([`e7ad52f`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/e7ad52f49c95e97718b5b04c5c352e30736d9554))
+
+## Features
+
+- Add density field for heterogeneous fractals([`a69e8d9`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/a69e8d9b0313221c63346a6a9a11fedc81a43577))
+- Add distance-weighted random walk with beta parameter([`32baa1f`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/32baa1f9af36a81cbdbcc97cb6ffe4533a7e1640))
+- New equilateral triangle in shape editor([`9a7d100`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/9a7d100d0a8e718d5951e035d3e00057c029250c))
+
+## Chore
+
+- .gitignore([`8a9d76f`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/8a9d76ffc5b680f1e60dd72d17ff948cc77f55da))
+- Density circle color([`b1c0b66`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/b1c0b6695ace920dd7a1cb0b4b35d5f74519a7bc))
+
+
+## Bug Fixes
+
 - **UI:** Fractal editor side bars([`3419938`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/341993861b8f4f61cfbe20ed9bde8156b3f741e3))
 
 ## Features
