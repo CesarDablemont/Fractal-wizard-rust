@@ -277,9 +277,20 @@ impl PatternEditor {
                     if let Some(&idx) = self.selected.first() {
                         if idx < self.patterns.len() {
                             let p = &self.patterns[idx];
+                            let others: Vec<shared::OtherTransform> = self.patterns
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| *i != idx)
+                                .map(|(_, p)| shared::OtherTransform {
+                                    translate: p.translate,
+                                    rotate: p.rotate,
+                                    scale: 1.0 / p.scale,
+                                })
+                                .collect();
                             let offset = shared::snap_translation(
                                 &self.model_points, p.translate, p.rotate, 1.0 / p.scale,
                                 self.camera.zoom,
+                                &others,
                             );
                             self.patterns[idx].translate += offset;
                             self.recalculate_dimension();
