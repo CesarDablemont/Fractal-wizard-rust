@@ -7,26 +7,31 @@ pub struct BoxCountingResult {
     pub correlation_dimension: f32,
     pub proportion_mean: f32,
     pub proportion_variance: f32,
-    /// Spectre de dimensions généralisées D_q pour q = -4, -2, 0, 1, 2, 4.
-    /// Permet de distinguer monofractal (D_q constant) de multifractal (D_q varie).
-    pub d_q_spectrum: [f32; 6],
+    /// Spectre D_q pour q = 0, 1, 2, 3, 4.
+    pub d_q_spectrum: [f32; 5],
 }
 
-/// Structure interne pour stocker les données d'un niveau de box-counting.
+/// Valeurs de q pour le spectre D_q (q ≥ 0 uniquement).
+/// D₀ = dimension de capacité (boîtes)
+/// D₁ = dimension d'information (Shannon)
+/// D₂ = dimension de corrélation
+/// D₃, D₄ = dimensions d'ordre supérieur
+const Q_VALUES: [f32; 5] = [0.0, 1.0, 2.0, 3.0, 4.0];
+
+/// Données brutes d'un niveau de box-counting.
 struct LevelData {
     log_eps: f32,
+    non_empty: f32,
+    p_mean: f32,
+    p_var: f32,
+    /// Probabilités p_i = count_i / total_mass pour chaque boîte non vide.
+    /// Utilisé pour calculer Σ p_i^q pour n'importe quel q.
+    probs: Vec<f32>,
+    /// Valeurs pré-calculées pour D₀, D₁, D₂.
     log_n: f32,
     entropy: f32,
     log_sum_p2: f32,
-    p_mean: f32,
-    p_var: f32,
-    /// Pour chaque valeur de q, la somme des p_i^q.
-    /// Stocké comme Vec<(q, sum_pq, log_sum_pq)>.
-    sum_pq: Vec<(f32, f32, f32)>,
 }
-
-/// Valeurs de q pour le spectre D_q.
-const Q_VALUES: [f32; 6] = [-4.0, -2.0, 0.0, 1.0, 2.0, 4.0];
 
 pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingResult> {
     if points.is_empty() {
@@ -70,12 +75,11 @@ pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingRes
         let mut sum_p2 = 0.0;
         let mut entropy = 0.0;
         let mut var_sum = 0.0;
-
-        // Calculer sum(p_i^q) pour chaque q
-        let mut sum_pq: Vec<(f32, f32, f32)> = Vec::with_capacity(Q_VALUES.len());
+        let mut probs: Vec<f32> = Vec::with_capacity(cells.len());
 
         for &count in cells.values() {
             let p_i = count as f32 / total_mass;
+            probs.push(p_i);
             sum_p2 += p_i * p_i;
             if p_i > 0.0 {
                 entropy -= p_i * p_i.ln();
@@ -84,27 +88,15 @@ pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingRes
             var_sum += diff * diff;
         }
 
-        // Calculer sum(p_i^q) pour chaque q
-        for &q in &Q_VALUES {
-            let mut s = 0.0_f32;
-            for &count in cells.values() {
-                let p_i = count as f32 / total_mass;
-                if p_i > 0.0 {
-                    s += p_i.powf(q);
-                }
-            }
-            let log_s = if s > 0.0 { s.ln() } else { f32::MIN };
-            sum_pq.push((q, s, log_s));
-        }
-
         all_levels.push(LevelData {
             log_eps: (1.0 / epsilon).ln(),
+            non_empty,
+            p_mean,
+            p_var: var_sum / non_empty,
+            probs,
             log_n: non_empty.ln(),
             entropy,
             log_sum_p2: sum_p2.ln(),
-            p_mean,
-            p_var: var_sum / non_empty,
-            sum_pq,
         });
     }
 
@@ -112,28 +104,79 @@ pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingRes
         return None;
     }
 
-    // Calculer les pentes locales entre niveaux consécutifs.
-    let mut local_slopes: Vec<f32> = Vec::with_capacity(all_levels.len() - 1);
-    for i in 1..all_levels.len() {
-        let d_log_n = all_levels[i].log_n - all_levels[i - 1].log_n;
-        let d_log_eps = all_levels[i].log_eps - all_levels[i - 1].log_eps;
-        if d_log_eps.abs() > 1e-10 {
-            local_slopes.push(d_log_n / d_log_eps);
+    let log_eps: Vec<f32> = all_levels.iter().map(|d| d.log_eps).collect();
+
+    // Zone de scaling unique basée sur D₀ (la plus robuste).
+    let log_n_all: Vec<f32> = all_levels.iter().map(|d| d.log_n).collect();
+    let (start, end) = find_scaling_region(&log_eps, &log_n_all);
+
+    let dim = linear_regression_slope(&log_eps[start..end], &log_n_all[start..end]);
+
+    let entropy_all: Vec<f32> = all_levels.iter().map(|d| d.entropy).collect();
+    let info_dim = linear_regression_slope(&log_eps[start..end], &entropy_all[start..end]);
+
+    let log_sp2_all: Vec<f32> = all_levels.iter().map(|d| d.log_sum_p2).collect();
+    let corr_slope = linear_regression_slope(&log_eps[start..end], &log_sp2_all[start..end]);
+    let corr_dim = -corr_slope;
+
+    // Spectre D_q : même zone de scaling pour tous les q.
+    let mut d_q_spectrum = [0.0_f32; 5];
+    for (qi, &q) in Q_VALUES.iter().enumerate() {
+        if q == 0.0 {
+            d_q_spectrum[qi] = dim;
+        } else if (q - 1.0).abs() < 1e-10 {
+            d_q_spectrum[qi] = info_dim;
+        } else {
+            let log_sum_pq: Vec<f32> = all_levels
+                .iter()
+                .map(|d| {
+                    let s: f32 = d.probs.iter().filter(|&&p| p > 0.0).map(|&p| p.powf(q)).sum();
+                    if s > 0.0 { s.ln() } else { f32::MIN }
+                })
+                .collect();
+
+            let slope = linear_regression_slope(&log_eps[start..end], &log_sum_pq[start..end]);
+            d_q_spectrum[qi] = slope / (1.0 - q);
+        }
+    }
+
+    let last = &all_levels[end - 1];
+
+    Some(BoxCountingResult {
+        dimension: dim,
+        information_dimension: info_dim,
+        correlation_dimension: corr_dim,
+        proportion_mean: last.p_mean,
+        proportion_variance: last.p_var,
+        d_q_spectrum,
+    })
+}
+
+/// Trouve la zone de scaling fractal dans une courbe log-log.
+/// Sélectionne la plus longue séquence de pentes locales >= 80% de la pente max.
+fn find_scaling_region(log_eps: &[f32], log_y: &[f32]) -> (usize, usize) {
+    if log_eps.len() < 2 {
+        return (0, log_eps.len());
+    }
+
+    let mut local_slopes: Vec<f32> = Vec::with_capacity(log_eps.len() - 1);
+    for i in 1..log_eps.len() {
+        let dy = log_y[i] - log_y[i - 1];
+        let dx = log_eps[i] - log_eps[i - 1];
+        if dx.abs() > 1e-10 {
+            local_slopes.push(dy / dx);
         } else {
             local_slopes.push(0.0);
         }
     }
 
-    // Trouver la pente maximale (zone de scaling fractal pur).
     let max_slope = local_slopes.iter().cloned().fold(0.0f32, f32::max);
     if max_slope <= 0.0 {
-        return None;
+        return (0, log_eps.len().min(3));
     }
 
-    // Seuil: garder les niveaux où la pente est >= 80% de la pente max.
     let threshold = max_slope * 0.8;
 
-    // Trouver la plus longue séquence contiguë de pentes >= threshold.
     let mut best_start = 0usize;
     let mut best_len = 0usize;
     let mut cur_start = 0usize;
@@ -158,65 +201,14 @@ pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingRes
         best_len = cur_len;
     }
 
-    let mut start_level = best_start;
-    let mut end_level = (best_start + best_len + 1).min(all_levels.len());
+    let start = best_start;
+    let end = (best_start + best_len + 1).min(log_eps.len());
 
-    if end_level - start_level < 2 {
-        start_level = 0;
-        end_level = all_levels.len().min(3);
+    if end - start < 2 {
+        (0, log_eps.len().min(3))
+    } else {
+        (start, end)
     }
-
-    let log_eps: Vec<f32> = all_levels[start_level..end_level]
-        .iter()
-        .map(|d| d.log_eps)
-        .collect();
-    let log_n: Vec<f32> = all_levels[start_level..end_level]
-        .iter()
-        .map(|d| d.log_n)
-        .collect();
-    let entropy_vals: Vec<f32> = all_levels[start_level..end_level]
-        .iter()
-        .map(|d| d.entropy)
-        .collect();
-    let log_sum_p2: Vec<f32> = all_levels[start_level..end_level]
-        .iter()
-        .map(|d| d.log_sum_p2)
-        .collect();
-
-    let last = &all_levels[end_level - 1];
-
-    let dim = linear_regression_slope(&log_eps, &log_n);
-    let info_dim = linear_regression_slope(&log_eps, &entropy_vals);
-    let corr_slope = linear_regression_slope(&log_eps, &log_sum_p2);
-    let corr_dim = -corr_slope;
-
-    // Calculer le spectre D_q pour chaque valeur de q.
-    // D_q = 1/(q-1) * lim(log(Z(q,eps)) / log(eps))
-    // Comme log(eps) = -log(1/eps), et qu'on régresse vs log(1/eps):
-    // D_q = -slope / (q-1) = slope / (1-q)
-    let mut d_q_spectrum = [0.0_f32; 6];
-    for (qi, &q) in Q_VALUES.iter().enumerate() {
-        let log_sum_pq: Vec<f32> = all_levels[start_level..end_level]
-            .iter()
-            .map(|d| d.sum_pq[qi].2)
-            .collect();
-        let slope = linear_regression_slope(&log_eps, &log_sum_pq);
-        if (q - 1.0).abs() > 1e-10 {
-            d_q_spectrum[qi] = slope / (1.0 - q);
-        } else {
-            // q=1: utiliser la dimension d'information
-            d_q_spectrum[qi] = info_dim;
-        }
-    }
-
-    Some(BoxCountingResult {
-        dimension: dim,
-        information_dimension: info_dim,
-        correlation_dimension: corr_dim,
-        proportion_mean: last.p_mean,
-        proportion_variance: last.p_var,
-        d_q_spectrum,
-    })
 }
 
 fn linear_regression_slope(x: &[f32], y: &[f32]) -> f32 {

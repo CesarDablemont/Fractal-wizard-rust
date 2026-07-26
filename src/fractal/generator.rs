@@ -246,7 +246,10 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
         apply_density_field(&mut final_points, &disp_refs);
     }
 
-    let box_counting = dimension::box_counting(&final_points, *iterations);
+    // Box-counting sur les centres des copies (masse uniforme par copie)
+    // plutôt que sur les points dédupliqués (masse non-uniforme à cause des sommets partagés).
+    let shape_centers: Vec<Pos2> = all_shapes.iter().map(|s| s.translate).collect();
+    let box_counting = dimension::box_counting(&shape_centers, *iterations);
 
     FractalResult {
         points: final_points,

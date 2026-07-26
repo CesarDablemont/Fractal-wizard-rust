@@ -55,7 +55,7 @@
       "scale": 1.0
     }
   ],
-  "iterations": 4,
+  "iterations": 10,
   "regroup": false,
   "add_delta": false,
   "delta": [

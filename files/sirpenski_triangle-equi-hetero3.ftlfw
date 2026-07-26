@@ -55,7 +55,7 @@
       "scale": 1.0
     }
   ],
-  "iterations": 4,
+  "iterations": 10,
   "regroup": false,
   "add_delta": false,
   "delta": [
@@ -66,12 +66,12 @@
   "density_sources": [
     {
       "position": [
-        41.28447,
-        69.14651
+        2584.1199,
+        1458.1871
       ],
-      "radius": 146.0,
-      "force": 22.0,
-      "exponent": 1.0,
+      "radius": 2850.0,
+      "force": 56.0,
+      "exponent": 2.0,
       "mode": "Iteration"
     }
   ]

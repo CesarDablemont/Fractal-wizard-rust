@@ -895,21 +895,31 @@ impl FractalEditor {
                 ui.label(format!("Dimension d'information: {:.4}", bc.information_dimension));
                 ui.label(format!("Dimension de corrélation: {:.4}", bc.correlation_dimension));
                 ui.label(format!("Moyenne: {:.6}", bc.proportion_mean));
-                ui.label(format!("Variance: {:.2e}", bc.proportion_variance));
+                ui.label(format!("Variance: {:.6}", bc.proportion_variance));
+
+                // Diagnostic mono/multifractale basé sur la variance des proportions.
+                // Pour un monofractale, p_i ≈ 1/N partout → η ≈ 0.
+                // Pour un multifractale, p_i varie → η > 0.
+                let eta = if bc.proportion_mean > 0.0 {
+                    bc.proportion_variance / (bc.proportion_mean * bc.proportion_mean)
+                } else {
+                    0.0
+                };
+                ui.label(format!("  η (var/μ²): {:.4}", eta));
 
                 ui.separator();
                 ui.label("Spectre D_q:");
-                let q_labels = ["D₋₄", "D₋₂", "D₀", "D₁", "D₂", "D₄"];
+                let q_labels = ["D₀", "D₁", "D₂", "D₃", "D₄"];
                 let dq_range = bc.d_q_spectrum.iter().cloned().fold(f32::MIN, f32::max)
                     - bc.d_q_spectrum.iter().cloned().fold(f32::MAX, f32::min);
                 for (i, label) in q_labels.iter().enumerate() {
                     ui.label(format!("  {} = {:.4}", label, bc.d_q_spectrum[i]));
                 }
                 ui.label(format!("  Étalement D_q: {:.4}", dq_range));
-                if dq_range < 0.1 {
-                    ui.label("  → Monofractal (D_q ≈ constant)");
+                if eta < 1.0 {
+                    ui.label("  → Monofractal (mesure uniforme)");
                 } else {
-                    ui.label("  → Multifractal (D_q varie)");
+                    ui.label("  → Multifractal (mesure hétérogène)");
                 }
             }
 
