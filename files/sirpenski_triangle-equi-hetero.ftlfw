@@ -1,0 +1,77 @@
+{
+  "shape": {
+    "type": "Polygon",
+    "points": [
+      [
+        -5.0,
+        0.0
+      ],
+      [
+        5.0,
+        -0.0
+      ],
+      [
+        0.0,
+        8.660254
+      ]
+    ]
+  },
+  "pattern": {
+    "display_parent": false,
+    "patterns": [
+      {
+        "translate": [
+          -2.5,
+          0.0
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      },
+      {
+        "translate": [
+          2.5,
+          0.0
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      },
+      {
+        "translate": [
+          -6.7055225e-8,
+          4.330127
+        ],
+        "rotate": 0.0,
+        "scale": 2.0
+      }
+    ]
+  },
+  "initial": [
+    {
+      "translate": [
+        0.0,
+        0.0
+      ],
+      "rotate": 0.0,
+      "scale": 1.0
+    }
+  ],
+  "iterations": 4,
+  "regroup": false,
+  "add_delta": false,
+  "delta": [
+    0.0,
+    0.0
+  ],
+  "delta_intervals": 1000,
+  "density_sources": [
+    {
+      "position": [
+        0.107542545,
+        136.2599
+      ],
+      "radius": 165.0,
+      "force": 50.0,
+      "exponent": 2.0
+    }
+  ]
+}

@@ -9,7 +9,7 @@ use crate::scene::chunk_grid::ChunkGrid;
 use crate::shapes::polygon::Polygon;
 use crate::shapes::free_linear::FreeLinearShape;
 use crate::shapes::shape::Shape as ShapeTrait;
-use crate::types::{DensitySource, EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
+use crate::types::{DensityMode, DensitySource, EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
 use crate::file_io;
 use super::shared;
 
@@ -567,8 +567,17 @@ impl FractalEditor {
                 let mut remove_idx = None;
                 for (i, src) in self.density_sources.iter_mut().enumerate() {
                     ui.horizontal(|ui| {
-                        let label = if src.force >= 0.0 { "Attraction" } else { "Répulsion" };
-                        if ui.selectable_label(self.selected_density_source == Some(i), format!("{} {}", label, i + 1)).clicked() {
+                        let mode_label = match src.mode {
+                            DensityMode::Displacement => "",
+                            DensityMode::Contraction => " [C]",
+                            DensityMode::Iteration => " [I]",
+                        };
+                        let label = if src.force >= 0.0 {
+                            format!("Attraction{}{}", mode_label, i + 1)
+                        } else {
+                            format!("Répulsion{}{}", mode_label, i + 1)
+                        };
+                        if ui.selectable_label(self.selected_density_source == Some(i), &label).clicked() {
                             self.selected_density_source = Some(i);
                         }
                         if ui.small_button("x").clicked() {
@@ -577,6 +586,16 @@ impl FractalEditor {
                     });
                     if self.selected_density_source == Some(i) {
                         ui.indent("density_src_indent", |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Mode:");
+                                egui::ComboBox::from_id_salt(format!("density_mode_{i}"))
+                                    .selected_text(src.mode.label())
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut src.mode, DensityMode::Displacement, DensityMode::Displacement.label());
+                                        ui.selectable_value(&mut src.mode, DensityMode::Contraction, DensityMode::Contraction.label());
+                                        ui.selectable_value(&mut src.mode, DensityMode::Iteration, DensityMode::Iteration.label());
+                                    });
+                            });
                             ui.horizontal(|ui| {
                                 ui.label("X:");
                                 ui.add(egui::DragValue::new(&mut src.position.x).speed(1.0));
@@ -811,28 +830,49 @@ impl FractalEditor {
         for (i, src) in self.density_sources.iter().enumerate() {
             let center = self.camera.world_to_screen(src.position, canvas_center);
             let screen_radius = src.radius * self.camera.zoom;
-            let color = if src.force >= 0.0 {
-                Color32::from_rgba_premultiplied(0, 180, 0, 20)
-            } else {
-                Color32::from_rgba_premultiplied(180, 0, 0, 20)
-            };
-            let stroke_color = if src.force >= 0.0 {
-                Color32::from_rgba_premultiplied(0, 180, 0, 60)
-            } else {
-                Color32::from_rgba_premultiplied(180, 0, 0, 60)
+            let (fill, stroke_color, label) = match (src.mode, src.force >= 0.0) {
+                (DensityMode::Displacement, true) => (
+                    Color32::from_rgba_premultiplied(0, 180, 0, 20),
+                    Color32::from_rgba_premultiplied(0, 180, 0, 60),
+                    format!("A{}", i + 1),
+                ),
+                (DensityMode::Displacement, false) => (
+                    Color32::from_rgba_premultiplied(180, 0, 0, 20),
+                    Color32::from_rgba_premultiplied(180, 0, 0, 60),
+                    format!("R{}", i + 1),
+                ),
+                (DensityMode::Contraction, true) => (
+                    Color32::from_rgba_premultiplied(0, 120, 255, 20),
+                    Color32::from_rgba_premultiplied(0, 120, 255, 60),
+                    format!("C{}", i + 1),
+                ),
+                (DensityMode::Contraction, false) => (
+                    Color32::from_rgba_premultiplied(255, 120, 0, 20),
+                    Color32::from_rgba_premultiplied(255, 120, 0, 60),
+                    format!("D{}", i + 1),
+                ),
+                (DensityMode::Iteration, true) => (
+                    Color32::from_rgba_premultiplied(180, 0, 255, 20),
+                    Color32::from_rgba_premultiplied(180, 0, 255, 60),
+                    format!("I+{}", i + 1),
+                ),
+                (DensityMode::Iteration, false) => (
+                    Color32::from_rgba_premultiplied(255, 255, 0, 20),
+                    Color32::from_rgba_premultiplied(255, 255, 0, 60),
+                    format!("I-{}", i + 1),
+                ),
             };
             let stroke = egui::Stroke::new(1.5, stroke_color);
             shapes.push(Shape::Circle(egui::epaint::CircleShape {
                 center,
                 radius: screen_radius,
-                fill: color,
+                fill,
                 stroke,
             }));
-            let label = if src.force >= 0.0 { "A" } else { "R" };
             painter.text(
                 center,
                 Align2::CENTER_CENTER,
-                format!("{}{}", label, i + 1),
+                &label,
                 FontId::proportional(12.0),
                 Color32::WHITE,
             );
@@ -856,6 +896,21 @@ impl FractalEditor {
                 ui.label(format!("Dimension de corrélation: {:.4}", bc.correlation_dimension));
                 ui.label(format!("Moyenne: {:.6}", bc.proportion_mean));
                 ui.label(format!("Variance: {:.2e}", bc.proportion_variance));
+
+                ui.separator();
+                ui.label("Spectre D_q:");
+                let q_labels = ["D₋₄", "D₋₂", "D₀", "D₁", "D₂", "D₄"];
+                let dq_range = bc.d_q_spectrum.iter().cloned().fold(f32::MIN, f32::max)
+                    - bc.d_q_spectrum.iter().cloned().fold(f32::MAX, f32::min);
+                for (i, label) in q_labels.iter().enumerate() {
+                    ui.label(format!("  {} = {:.4}", label, bc.d_q_spectrum[i]));
+                }
+                ui.label(format!("  Étalement D_q: {:.4}", dq_range));
+                if dq_range < 0.1 {
+                    ui.label("  → Monofractal (D_q ≈ constant)");
+                } else {
+                    ui.label("  → Multifractal (D_q varie)");
+                }
             }
 
             ui.separator();

@@ -1,0 +1,111 @@
+{
+  "shape": {
+    "type": "Polygon",
+    "points": [
+      [
+        -5.0,
+        5.0
+      ],
+      [
+        -5.0,
+        -5.0
+      ],
+      [
+        5.0,
+        -5.0
+      ],
+      [
+        5.0,
+        5.0
+      ]
+    ]
+  },
+  "pattern": {
+    "display_parent": false,
+    "patterns": [
+      {
+        "translate": [
+          -3.3333335,
+          3.3333333
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -5.7742e-8,
+          3.3333333
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          3.3333335,
+          3.333333
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          3.3333335,
+          -5.364418e-7
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          3.3333333,
+          -3.333334
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -2.7939677e-7,
+          -3.3333344
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -3.3333333,
+          -3.3333333
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      },
+      {
+        "translate": [
+          -3.3333337,
+          -9.834766e-7
+        ],
+        "rotate": 0.0,
+        "scale": 3.0
+      }
+    ]
+  },
+  "initial": [
+    {
+      "translate": [
+        0.0,
+        0.0
+      ],
+      "rotate": 0.0,
+      "scale": 1.0
+    }
+  ],
+  "iterations": 3,
+  "regroup": false,
+  "add_delta": false,
+  "delta": [
+    0.0,
+    0.0
+  ],
+  "delta_intervals": 1000,
+  "density_sources": []
+}
