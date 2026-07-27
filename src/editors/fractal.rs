@@ -894,8 +894,8 @@ impl FractalEditor {
                 ui.label(format!("Dimension boîtes: {:.4}", bc.dimension));
                 ui.label(format!("Dimension d'information: {:.4}", bc.information_dimension));
                 ui.label(format!("Dimension de corrélation: {:.4}", bc.correlation_dimension));
-                ui.label(format!("Moyenne: {:.6}", bc.proportion_mean));
-                ui.label(format!("Variance: {:.6}", bc.proportion_variance));
+                ui.label(format!("Moyenne: {:.3e}", bc.proportion_mean).replace("e+", " e+").replace("e-", " e-"));
+                ui.label(format!("Variance: {:.3e}", bc.proportion_variance).replace("e+", " e+").replace("e-", " e-"));
 
                 // Diagnostic mono/multifractale basé sur la variance des proportions.
                 // Pour un monofractale, p_i ≈ 1/N partout → η ≈ 0.
@@ -906,6 +906,11 @@ impl FractalEditor {
                     0.0
                 };
                 ui.label(format!("  η (var/μ²): {:.4}", eta));
+                if eta < 1.0 {
+                    ui.label("-> Monofractal (mesure uniforme)");
+                } else {
+                    ui.label("-> Multifractal (mesure hétérogène)");
+                }
 
                 ui.separator();
                 ui.label("Spectre D_q:");
@@ -916,11 +921,6 @@ impl FractalEditor {
                     ui.label(format!("  {} = {:.4}", label, bc.d_q_spectrum[i]));
                 }
                 ui.label(format!("  Étalement D_q: {:.4}", dq_range));
-                if eta < 1.0 {
-                    ui.label("  → Monofractal (mesure uniforme)");
-                } else {
-                    ui.label("  → Multifractal (mesure hétérogène)");
-                }
             }
 
             ui.separator();
