@@ -21,7 +21,6 @@ const Q_VALUES: [f32; 5] = [0.0, 1.0, 2.0, 3.0, 4.0];
 /// Données brutes d'un niveau de box-counting.
 struct LevelData {
     log_eps: f32,
-    non_empty: f32,
     p_mean: f32,
     p_var: f32,
     /// Probabilités p_i = count_i / total_mass pour chaque boîte non vide.
@@ -90,7 +89,6 @@ pub fn box_counting(points: &[Pos2], iterations: usize) -> Option<BoxCountingRes
 
         all_levels.push(LevelData {
             log_eps: (1.0 / epsilon).ln(),
-            non_empty,
             p_mean,
             p_var: var_sum / non_empty,
             probs,
