@@ -106,6 +106,32 @@ impl LoopMode {
 
 pub type Line = [usize; 2];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DensityMode {
+    /// Déplace les points après génération (comportement original)
+    Displacement,
+    /// Module le facteur de contraction pendant les itérations (multifractal)
+    Contraction,
+    /// Module le nombre d'itérations par branche selon la position
+    Iteration,
+}
+
+impl Default for DensityMode {
+    fn default() -> Self {
+        DensityMode::Displacement
+    }
+}
+
+impl DensityMode {
+    pub fn label(self) -> &'static str {
+        match self {
+            DensityMode::Displacement => "Déplacement",
+            DensityMode::Contraction => "Contraction",
+            DensityMode::Iteration => "Itération",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DensitySource {
     #[serde(with = "pos2_serde")]
@@ -113,6 +139,8 @@ pub struct DensitySource {
     pub radius: f32,
     pub force: f32,
     pub exponent: f32,
+    #[serde(default)]
+    pub mode: DensityMode,
 }
 
 impl Default for DensitySource {
@@ -122,6 +150,7 @@ impl Default for DensitySource {
             radius: 100.0,
             force: 1.0,
             exponent: 1.0,
+            mode: DensityMode::Displacement,
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use eframe::egui::{pos2, Pos2, Vec2};
 use crate::shapes::shape::apply_transform;
-use crate::types::{DensitySource, Line, ShapePatternData};
+use crate::types::{DensityMode, DensitySource, Line, ShapePatternData};
 use super::dimension;
 
 pub struct FractalResult {
@@ -24,44 +24,184 @@ pub struct FractalConfig<'a> {
     pub density_sources: &'a [DensitySource],
 }
 
+/// Forme avec sa profondeur actuelle et sa profondeur maximale autorisée.
+struct ShapeWithDepth {
+    data: ShapePatternData,
+    depth: usize,
+    max_allowed: usize,
+}
+
 pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
     let FractalConfig {
         get_points, get_lines, pattern, initial,
         iterations, regroup, display_parent, delta_radius, density_sources,
     } = config;
 
-    let mut current = initial.to_vec();
+    // Séparer les sources selon leur mode
+    let contraction_sources: Vec<&DensitySource> = density_sources
+        .iter()
+        .filter(|s| s.mode == DensityMode::Contraction)
+        .collect();
+    let iteration_sources: Vec<&DensitySource> = density_sources
+        .iter()
+        .filter(|s| s.mode == DensityMode::Iteration)
+        .collect();
+    let displacement_sources: Vec<&DensitySource> = density_sources
+        .iter()
+        .filter(|s| s.mode == DensityMode::Displacement)
+        .collect();
+
+    let has_contraction = !contraction_sources.is_empty();
+    let has_iteration = !iteration_sources.is_empty();
+
+    // Safety cap: limite le nombre d'itérations par branche pour éviter l'explosion exponentielle.
+    let max_depth = iterations + 3;
+
     let mut all_shapes: Vec<ShapePatternData> = Vec::new();
 
-    for _ in 0..*iterations {
-        let mut children = Vec::new();
-        for parent in &current {
+    if has_iteration {
+        // Mode Itération : chaque branche porte sa profondeur et son max autorisé.
+        // On utilise une pile explicite (DFS) au lieu d'une boucle plate.
+        let mut stack: Vec<ShapeWithDepth> = initial
+            .iter()
+            .map(|s| ShapeWithDepth {
+                data: s.clone(),
+                depth: 0,
+                max_allowed: *iterations,
+            })
+            .collect();
+
+        while let Some(item) = stack.pop() {
+            if item.depth >= item.max_allowed {
+                all_shapes.push(item.data);
+                continue;
+            }
+
+            if *display_parent {
+                all_shapes.push(item.data.clone());
+            }
+
             for pat in *pattern {
-                let child_scale = parent.scale * (1.0 / pat.scale);
-                let child_rotate = parent.rotate + pat.rotate;
+                let base_scale = 1.0 / pat.scale;
                 let transformed = apply_transform(
                     pat.translate,
                     Pos2::ZERO,
-                    parent.rotate,
-                    Vec2::new(parent.scale, parent.scale),
+                    item.data.rotate,
+                    Vec2::new(item.data.scale, item.data.scale),
+                );
+                let child_pos = pos2(
+                    item.data.translate.x + transformed.x,
+                    item.data.translate.y + transformed.y,
+                );
+
+                // Modulation de contraction (si sources de contraction présentes)
+                let scale_modulation = if has_contraction {
+                    compute_contraction_factor(child_pos, &contraction_sources)
+                } else {
+                    1.0
+                };
+
+                let child_scale = item.data.scale * base_scale * scale_modulation;
+                let child_rotate = item.data.rotate + pat.rotate;
+
+                // Recalculer le transform avec le scale modulé
+                let transformed = apply_transform(
+                    pat.translate,
+                    Pos2::ZERO,
+                    item.data.rotate,
+                    Vec2::new(
+                        item.data.scale * scale_modulation,
+                        item.data.scale * scale_modulation,
+                    ),
                 );
                 let child_translate = pos2(
-                    parent.translate.x + transformed.x,
-                    parent.translate.y + transformed.y,
+                    item.data.translate.x + transformed.x,
+                    item.data.translate.y + transformed.y,
                 );
-                children.push(ShapePatternData {
-                    translate: child_translate,
-                    rotate: child_rotate,
-                    scale: child_scale,
+
+                // Bonus d'itérations selon la position
+                // Le max autorisé augmente, mais la profondeur augmente toujours de 1.
+                // Donc la branche converge toujours (depth augmente strictement).
+                let iter_bonus = compute_iteration_bonus(child_pos, &iteration_sources);
+                let child_max_allowed = (item.max_allowed + iter_bonus).min(max_depth);
+
+                stack.push(ShapeWithDepth {
+                    data: ShapePatternData {
+                        translate: child_translate,
+                        rotate: child_rotate,
+                        scale: child_scale,
+                    },
+                    depth: item.depth + 1,
+                    max_allowed: child_max_allowed,
                 });
             }
         }
-        if *display_parent {
-            all_shapes.extend(current);
+    } else {
+        // Mode standard / contraction : boucle plate (comportement existant)
+        let mut current = initial.to_vec();
+
+        for _ in 0..*iterations {
+            let mut children = Vec::new();
+            for parent in &current {
+                for pat in *pattern {
+                    let base_scale = 1.0 / pat.scale;
+
+                    let transformed = if has_contraction {
+                        apply_transform(
+                            pat.translate,
+                            Pos2::ZERO,
+                            parent.rotate,
+                            Vec2::new(parent.scale, parent.scale),
+                        )
+                    } else {
+                        Pos2::ZERO
+                    };
+                    let child_pos = if has_contraction {
+                        pos2(
+                            parent.translate.x + transformed.x,
+                            parent.translate.y + transformed.y,
+                        )
+                    } else {
+                        Pos2::ZERO
+                    };
+
+                    let scale_modulation = if has_contraction {
+                        compute_contraction_factor(child_pos, &contraction_sources)
+                    } else {
+                        1.0
+                    };
+
+                    let child_scale = parent.scale * base_scale * scale_modulation;
+                    let child_rotate = parent.rotate + pat.rotate;
+
+                    let transformed = apply_transform(
+                        pat.translate,
+                        Pos2::ZERO,
+                        parent.rotate,
+                        Vec2::new(
+                            parent.scale * scale_modulation,
+                            parent.scale * scale_modulation,
+                        ),
+                    );
+                    let child_translate = pos2(
+                        parent.translate.x + transformed.x,
+                        parent.translate.y + transformed.y,
+                    );
+
+                    children.push(ShapePatternData {
+                        translate: child_translate,
+                        rotate: child_rotate,
+                        scale: child_scale,
+                    });
+                }
+            }
+            if *display_parent {
+                all_shapes.extend(current);
+            }
+            current = children;
         }
-        current = children;
+        all_shapes.extend(current);
     }
-    all_shapes.extend(current);
 
     let mut final_points: Vec<Pos2> = Vec::new();
     let mut final_lines: Vec<Line> = Vec::new();
@@ -101,11 +241,15 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
         }
     }
 
-    if !density_sources.is_empty() {
-        apply_density_field(&mut final_points, density_sources);
+    if !displacement_sources.is_empty() {
+        let disp_refs: Vec<DensitySource> = displacement_sources.into_iter().cloned().collect();
+        apply_density_field(&mut final_points, &disp_refs);
     }
 
-    let box_counting = dimension::box_counting(&final_points, *iterations);
+    // Box-counting sur les centres des copies (masse uniforme par copie)
+    // plutôt que sur les points dédupliqués (masse non-uniforme à cause des sommets partagés).
+    let shape_centers: Vec<Pos2> = all_shapes.iter().map(|s| s.translate).collect();
+    let box_counting = dimension::box_counting(&shape_centers, *iterations);
 
     FractalResult {
         points: final_points,
@@ -113,6 +257,53 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
         point_scale: final_point_scale,
         dimension,
         box_counting,
+    }
+}
+
+/// Calcule le facteur de contraction modulé par les sources de densité.
+fn compute_contraction_factor(pos: Pos2, sources: &[&DensitySource]) -> f32 {
+    let mut modulation = 1.0;
+    for source in sources {
+        let dx = source.position.x - pos.x;
+        let dy = source.position.y - pos.y;
+        let dist_sq = dx * dx + dy * dy;
+        let r = source.radius;
+        if dist_sq < r * r && dist_sq > 0.0 {
+            let dist = dist_sq.sqrt();
+            let t = 1.0 - dist / r;
+            let influence = t.powf(source.exponent) * source.force;
+            modulation *= 1.0 + influence / 100.0;
+        }
+    }
+    modulation.clamp(0.01, 100.0)
+}
+
+/// Calcule le bonus d'itérations pour une position donnée.
+///
+/// `force > 0` : itérations supplémentaires (plus de détail près de la source)
+/// `force < 0` : itérations en moins (moins de détail près de la source)
+///
+/// Le bonus est arrondi à un entier. force=25 → 1 itération supplémentaire max,
+/// force=50 → 2 itérations supplémentaires max.
+fn compute_iteration_bonus(pos: Pos2, sources: &[&DensitySource]) -> usize {
+    let mut total_bonus: f32 = 0.0;
+    for source in sources {
+        let dx = source.position.x - pos.x;
+        let dy = source.position.y - pos.y;
+        let dist_sq = dx * dx + dy * dy;
+        let r = source.radius;
+        if dist_sq < r * r && dist_sq > 0.0 {
+            let dist = dist_sq.sqrt();
+            let t = 1.0 - dist / r;
+            let influence = t.powf(source.exponent) * source.force;
+            // force=25 → 1 iter, force=50 → 2 iters
+            total_bonus += influence / 25.0;
+        }
+    }
+    if total_bonus > 0.0 {
+        total_bonus.round().max(0.0) as usize
+    } else {
+        0
     }
 }
 
