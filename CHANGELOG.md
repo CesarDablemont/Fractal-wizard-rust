@@ -2,6 +2,17 @@
 
 ## Bug Fixes
 
+- Mono/multi fractal work !!!([`72e14fc`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/72e14fce87b8a9a307d22238fedf0d756450dd49))
+- **UI:** Fractal property([`d6c446f`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/d6c446fc6e6c3abd1554a50fbb9fe89289a2a84f))
+- Compilation warning([`f10ac73`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/f10ac7350b0f68a567b5aa1bec1c23b50eef6318))
+
+## Features
+
+- DensityMode Contraction and Iteration([`f99b291`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/f99b291a1f914ecac0106ee7c4e87bbaef1a0a38))
+
+
+## Bug Fixes
+
 - Magnetic placement snap to other pattern points([`0c23567`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/0c23567fd876a1f1fa1e5b8ad7218a87b4f9759c))
 - **UI:** Density source deplacement([`f00871d`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/f00871dd49483fbfb0ed87f03697479816523e4a))
 - Density field formula([`e7ad52f`](https://github.com/CesarDablemont/Fractal-wizard-rust/commit/e7ad52f49c95e97718b5b04c5c352e30736d9554))
