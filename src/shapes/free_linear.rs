@@ -50,3 +50,51 @@ impl Shape for FreeLinearShape {
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::pos2;
+
+    #[test]
+    fn add_point_first_adds_no_line() {
+        let mut s = FreeLinearShape::new();
+        s.add_point(pos2(0.0, 0.0));
+        assert_eq!(s.points().len(), 1);
+        assert!(s.lines().is_empty());
+    }
+
+    #[test]
+    fn add_point_second_creates_line() {
+        let mut s = FreeLinearShape::new();
+        s.add_point(pos2(0.0, 0.0));
+        s.add_point(pos2(1.0, 0.0));
+        assert_eq!(s.points().len(), 2);
+        assert_eq!(s.lines(), &[[0, 1]]);
+    }
+
+    #[test]
+    fn remove_point_middle_removes_incident_lines() {
+        let mut s = FreeLinearShape::new();
+        s.add_point(pos2(0.0, 0.0));
+        s.add_point(pos2(1.0, 0.0));
+        s.add_point(pos2(2.0, 0.0));
+        // lines: [[0,1], [1,2]]
+        s.remove_point(1);
+        assert_eq!(s.points().len(), 2);
+        assert_eq!(s.points()[0], pos2(0.0, 0.0));
+        assert_eq!(s.points()[1], pos2(2.0, 0.0));
+        // lines touching removed index are removed
+        assert!(s.lines().is_empty());
+    }
+
+    #[test]
+    fn remove_point_last() {
+        let mut s = FreeLinearShape::new();
+        s.add_point(pos2(0.0, 0.0));
+        s.add_point(pos2(1.0, 0.0));
+        s.remove_point(1);
+        assert_eq!(s.points().len(), 1);
+        assert!(s.lines().is_empty());
+    }
+}

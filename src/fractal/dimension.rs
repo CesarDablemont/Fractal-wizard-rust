@@ -222,3 +222,47 @@ fn linear_regression_slope(x: &[f32], y: &[f32]) -> f32 {
     }
     (n * sum_xy_products - sum_x * sum_y) / denom
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::pos2;
+
+    #[test]
+    fn box_counting_square() {
+        let mut points = Vec::new();
+        for x in 0..10 {
+            for y in 0..10 {
+                points.push(pos2(x as f32, y as f32));
+            }
+        }
+        let result = box_counting(&points, 5);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!(r.dimension > 1.5 && r.dimension < 2.5);
+    }
+
+    #[test]
+    fn linear_regression_slope_known() {
+        let x = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let y = vec![3.0, 5.0, 7.0, 9.0, 11.0];
+        let slope = linear_regression_slope(&x, &y);
+        assert!((slope - 2.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn dimensions_in_range() {
+        let mut points = Vec::new();
+        for x in 0..10 {
+            for y in 0..10 {
+                points.push(pos2(x as f32, y as f32));
+            }
+        }
+        let result = box_counting(&points, 5);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!(r.dimension >= 0.0 && r.dimension <= 2.0);
+        assert!(r.information_dimension >= 0.0 && r.information_dimension <= 2.0);
+        assert!(r.correlation_dimension >= 0.0 && r.correlation_dimension <= 2.0);
+    }
+}

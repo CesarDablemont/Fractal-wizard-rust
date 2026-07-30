@@ -363,3 +363,75 @@ fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sierpinski_dimension() {
+        let pattern = vec![
+            ShapePatternData { translate: pos2(0.0, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(1.0, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(0.5, 0.866), rotate: 0.0, scale: 2.0 },
+        ];
+        let initial = vec![ShapePatternData::default()];
+        let config = FractalConfig {
+            get_points: &|_, _, _| vec![pos2(0.0, 0.0)],
+            get_lines: &|_, _, _| vec![],
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 1,
+            regroup: false,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        };
+        let result = generate_fractal(&config);
+        let expected = (3.0f32).log10() / (2.0f32).log10();
+        assert!((result.dimension - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn points_generated_count() {
+        // pattern with non-zero translate so each child produces a distinct point
+        let pattern = vec![ShapePatternData { translate: pos2(10.0, 0.0), rotate: 0.0, scale: 2.0 }];
+        let initial = vec![ShapePatternData::default()];
+        let config = FractalConfig {
+            get_points: &|translate, _rotate, _scale| vec![translate],
+            get_lines: &|_, _, _| vec![],
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 2,
+            regroup: false,
+            display_parent: true,
+            delta_radius: 0.0,
+            density_sources: &[],
+        };
+        let result = generate_fractal(&config);
+        // display_parent=true: initial + 2 iterations = 3 shapes, each with distinct translate
+        assert_eq!(result.points.len(), 3);
+    }
+
+    #[test]
+    fn lines_are_connected() {
+        let pattern = vec![ShapePatternData { translate: pos2(0.0, 0.0), rotate: 0.0, scale: 2.0 }];
+        let initial = vec![ShapePatternData::default()];
+        let config = FractalConfig {
+            get_points: &|_, _, _| vec![pos2(0.0, 0.0), pos2(1.0, 0.0)],
+            get_lines: &|_, _, _| vec![[pos2(0.0, 0.0), pos2(1.0, 0.0)]],
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 2,
+            regroup: false,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        };
+        let result = generate_fractal(&config);
+        for line in &result.lines {
+            assert!(line[0] < result.points.len());
+            assert!(line[1] < result.points.len());
+        }
+    }
+}

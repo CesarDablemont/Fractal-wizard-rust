@@ -152,3 +152,38 @@ fn compute_stats(
         },
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::pos2;
+
+    #[test]
+    fn trivial_triangle() {
+        let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
+        let lines = vec![[0, 1], [1, 2], [2, 0]];
+        let (_, stats) = run_simulations(&points, &lines, 0, 10, 0, 100, 0.0);
+        assert!(stats.success_count > 0);
+    }
+
+    #[test]
+    fn compute_stats_valid() {
+        let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
+        let lines = vec![[0, 1], [1, 2], [2, 0]];
+        let (_, stats) = run_simulations(&points, &lines, 0, 20, 0, 100, 0.0);
+        assert!(stats.polya_number >= 0.0 && stats.polya_number <= 100.0);
+        assert!(stats.average_steps > 0.0);
+        assert!(stats.variance_steps >= 0.0);
+    }
+
+    #[test]
+    fn max_steps_respected() {
+        let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
+        let lines = vec![[0, 1], [1, 2]];
+        let max_steps = 5;
+        let (sims, _) = run_simulations(&points, &lines, 0, 5, 0, max_steps, 0.0);
+        for sim in &sims {
+            assert!(sim.steps() <= max_steps as usize);
+        }
+    }
+}

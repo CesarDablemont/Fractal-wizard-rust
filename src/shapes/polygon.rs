@@ -60,3 +60,38 @@ impl Shape for Polygon {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::pos2;
+
+    #[test]
+    fn from_points_less_than_two() {
+        let p = Polygon::from_points(vec![pos2(0.0, 0.0)]);
+        assert!(p.lines().is_empty());
+    }
+
+    #[test]
+    fn from_points_two_points() {
+        let p = Polygon::from_points(vec![pos2(0.0, 0.0), pos2(1.0, 0.0)]);
+        assert_eq!(p.lines(), &[[0, 1]]);
+    }
+
+    #[test]
+    fn from_points_three_points() {
+        let p = Polygon::from_points(vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)]);
+        assert_eq!(p.lines(), &[[0, 1], [1, 2], [2, 0]]);
+    }
+
+    #[test]
+    fn from_points_four_points() {
+        let p = Polygon::from_points(vec![
+            pos2(0.0, 0.0),
+            pos2(1.0, 0.0),
+            pos2(1.0, 1.0),
+            pos2(0.0, 1.0),
+        ]);
+        assert_eq!(p.lines(), &[[0, 1], [1, 2], [2, 3], [3, 0]]);
+    }
+}
