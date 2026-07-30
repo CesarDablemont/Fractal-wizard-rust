@@ -41,6 +41,7 @@ pub struct PatternEditor {
     selected: Vec<usize>,
     message: Option<String>,
     undo_stack: UndoStack<PatternUndoState>,
+    property_dragging: bool,
 }
 
 impl Default for PatternEditor {
@@ -63,6 +64,7 @@ impl Default for PatternEditor {
             selected: Vec::new(),
             message: None,
             undo_stack: UndoStack::new(100),
+            property_dragging: false,
         }
     }
 }
@@ -406,25 +408,33 @@ impl PatternEditor {
 
         if let Some(&idx) = self.selected.first() {
             if idx < self.patterns.len() {
-                let (changed, d_translate, d_rotate, d_scale) = {
+                let old_translate = self.patterns[idx].translate;
+                let old_rotate = self.patterns[idx].rotate;
+                let old_scale = self.patterns[idx].scale;
+
+                let old_state = self.snapshot();
+
+                let changed = {
                     let p = &mut self.patterns[idx];
-                    let old_translate = p.translate;
-                    let old_rotate = p.rotate;
-                    let old_scale = p.scale;
-                    let changed = shared::render_transform_properties(
+                    shared::render_transform_properties(
                         ui,
                         &format!("Pattern {}", idx + 1),
                         &mut p.translate,
                         &mut p.rotate,
                         &mut p.scale,
-                    );
-                    if changed {
-                        (true, p.translate - old_translate, p.rotate - old_rotate, p.scale - old_scale)
-                    } else {
-                        (false, Vec2::ZERO, 0.0, 0.0)
-                    }
+                    )
                 };
+
                 if changed {
+                    if !self.property_dragging {
+                        self.property_dragging = true;
+                        self.undo_stack.push(old_state);
+                    }
+
+                    let d_translate = self.patterns[idx].translate - old_translate;
+                    let d_rotate = self.patterns[idx].rotate - old_rotate;
+                    let d_scale = self.patterns[idx].scale - old_scale;
+
                     for &sel in &self.selected {
                         if sel != idx && sel < self.patterns.len() {
                             self.patterns[sel].translate += d_translate;
@@ -432,8 +442,9 @@ impl PatternEditor {
                             self.patterns[sel].scale += d_scale;
                         }
                     }
-                    self.push_undo();
                     self.recalculate_dimension();
+                } else {
+                    self.property_dragging = false;
                 }
             }
         }

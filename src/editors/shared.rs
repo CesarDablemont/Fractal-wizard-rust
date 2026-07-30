@@ -258,15 +258,17 @@ pub fn render_transform_properties(
         ui.label("Rotation:");
         changed |= ui.add(egui::DragValue::new(&mut deg).speed(1.0).suffix("°")).changed();
     });
+    let mut sc = *scale;
     ui.horizontal(|ui| {
         ui.label("Scale:");
-        changed |= ui.add(egui::DragValue::new(scale).speed(0.1).range(0.01..=10.0)).changed();
+        changed |= ui.add(egui::DragValue::new(&mut sc).speed(0.1).range(0.01..=10.0)).changed();
     });
 
     if changed {
         translate.x = tx;
         translate.y = ty;
         *rotate = deg.to_radians();
+        *scale = sc;
     }
     changed
 }

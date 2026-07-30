@@ -30,6 +30,7 @@ pub struct InitialEditor {
     selected: Vec<usize>,
     message: Option<String>,
     undo_stack: UndoStack<InitialUndoState>,
+    property_dragging: bool,
 }
 
 impl Default for InitialEditor {
@@ -49,6 +50,7 @@ impl Default for InitialEditor {
             selected: Vec::new(),
             message: None,
             undo_stack: UndoStack::new(100),
+            property_dragging: false,
         }
     }
 }
@@ -357,16 +359,26 @@ impl InitialEditor {
 
         if let Some(&idx) = self.selected.first() {
             if idx < self.shapes.len() {
-                let p = &mut self.shapes[idx];
-                let changed = shared::render_transform_properties(
-                    ui,
-                    &format!("Initial {}", idx + 1),
-                    &mut p.translate,
-                    &mut p.rotate,
-                    &mut p.scale,
-                );
+                let old_state = self.snapshot();
+
+                let changed = {
+                    let p = &mut self.shapes[idx];
+                    shared::render_transform_properties(
+                        ui,
+                        &format!("Initial {}", idx + 1),
+                        &mut p.translate,
+                        &mut p.rotate,
+                        &mut p.scale,
+                    )
+                };
+
                 if changed {
-                    self.push_undo();
+                    if !self.property_dragging {
+                        self.property_dragging = true;
+                        self.undo_stack.push(old_state);
+                    }
+                } else {
+                    self.property_dragging = false;
                 }
             }
         }
