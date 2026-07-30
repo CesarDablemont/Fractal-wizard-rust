@@ -70,6 +70,20 @@ impl InitialEditor {
             }];
         }
 
+        if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+            if !self.selected.is_empty() {
+                self.push_undo();
+            }
+            let mut to_remove: Vec<usize> = self.selected.clone();
+            to_remove.sort_unstable_by(|a, b| b.cmp(a));
+            for &i in &to_remove {
+                if i < self.shapes.len() {
+                    self.shapes.remove(i);
+                }
+            }
+            self.selected.clear();
+        }
+
         egui::TopBottomPanel::top("initial_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
         });
@@ -370,6 +384,10 @@ impl InitialEditor {
 
         if let Some(&idx) = self.selected.first() {
             if idx < self.shapes.len() {
+                let old_translate = self.shapes[idx].translate;
+                let old_rotate = self.shapes[idx].rotate;
+                let old_scale = self.shapes[idx].scale;
+
                 let old_state = self.snapshot();
 
                 let changed = {
@@ -387,6 +405,18 @@ impl InitialEditor {
                     if !self.property_dragging {
                         self.property_dragging = true;
                         self.undo_stack.push(old_state);
+                    }
+
+                    let d_translate = self.shapes[idx].translate - old_translate;
+                    let d_rotate = self.shapes[idx].rotate - old_rotate;
+                    let d_scale = self.shapes[idx].scale - old_scale;
+
+                    for &sel in &self.selected {
+                        if sel != idx && sel < self.shapes.len() {
+                            self.shapes[sel].translate += d_translate;
+                            self.shapes[sel].rotate += d_rotate;
+                            self.shapes[sel].scale += d_scale;
+                        }
                     }
                 } else {
                     self.property_dragging = false;
