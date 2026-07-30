@@ -78,7 +78,6 @@ jobs:
       - name: Generate changelog
         if: ${{ steps.bump.outputs.level != 'none' }}
         run: |
-          git-cliff --output CHANGELOG.md
           git-cliff "${{ steps.last_tag.outputs.tag }}..HEAD" --output RELEASE_NOTES.md
 
       - name: Commit, tag, and push
@@ -86,10 +85,18 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git add Cargo.toml Cargo.lock
           git commit -m "chore(release): v${{ steps.new_version.outputs.version }}"
           git tag "v${{ steps.new_version.outputs.version }}"
           git push origin main --follow-tags
+
+      - name: Build binary
+        if: ${{ steps.bump.outputs.level != 'none' }}
+        run: |
+          cargo build --release
+          mkdir -p dist
+          cp target/release/fractal-wizard dist/
+          tar czf dist/fractal-wizard-x86_64-linux.tar.gz -C dist fractal-wizard
 
       - name: Create GitHub Release
         if: ${{ steps.bump.outputs.level != 'none' }}
@@ -99,5 +106,6 @@ jobs:
           name: "v${{ steps.new_version.outputs.version }}"
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
+          files: dist/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
