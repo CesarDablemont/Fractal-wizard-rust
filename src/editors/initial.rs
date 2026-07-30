@@ -28,6 +28,7 @@ pub struct InitialEditor {
     gizmo_dragging: bool,
     show_gizmo: bool,
     selected: Vec<usize>,
+    last_clicked: Option<usize>,
     message: Option<String>,
     undo_stack: UndoStack<InitialUndoState>,
     property_dragging: bool,
@@ -48,6 +49,7 @@ impl Default for InitialEditor {
             gizmo_dragging: false,
             show_gizmo: true,
             selected: Vec::new(),
+            last_clicked: None,
             message: None,
             undo_stack: UndoStack::new(100),
             property_dragging: false,
@@ -212,7 +214,15 @@ impl InitialEditor {
             );
             let selected = self.selected.contains(&i);
             if ui.selectable_label(selected, &label).clicked() {
-                if ui.input(|i| i.modifiers.ctrl) {
+                if ui.input(|i| i.modifiers.shift) {
+                    if let Some(anchor) = self.last_clicked {
+                        let start = anchor.min(i);
+                        let end = anchor.max(i);
+                        self.selected = (start..=end).collect();
+                    } else {
+                        self.selected = vec![i];
+                    }
+                } else if ui.input(|i| i.modifiers.ctrl) {
                     if selected {
                         self.selected.retain(|&x| x != i);
                     } else {
@@ -221,6 +231,7 @@ impl InitialEditor {
                 } else {
                     self.selected = vec![i];
                 }
+                self.last_clicked = Some(i);
             }
         }
         if self.shapes.is_empty() {
