@@ -10,6 +10,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.new_version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -107,5 +109,29 @@ jobs:
           generate_release_notes: false
           body_path: RELEASE_NOTES.md
           files: dist/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    needs: release
+    if: needs.release.outputs.version != ''
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo build --release
+
+      - run: mkdir dist
+
+      - shell: pwsh
+        run: |
+          Compress-Archive -Path target/release/fractal-wizard.exe -DestinationPath dist/fractal-wizard-x86_64-windows.zip
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.release.outputs.version }}
+          files: dist/*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
