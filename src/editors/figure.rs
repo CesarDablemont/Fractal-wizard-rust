@@ -8,6 +8,16 @@ use crate::types::{EditorState, FigureType, Line};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
 use super::shared;
+use super::undo::UndoStack;
+
+#[derive(Clone)]
+struct FigureUndoState {
+    shape: Option<FigureShape>,
+    figure_type: FigureType,
+    selected_point: Option<usize>,
+    equilateral_mode: bool,
+    state: EditorState,
+}
 
 pub struct FigureEditor {
     pub file_path: Option<String>,
@@ -26,6 +36,7 @@ pub struct FigureEditor {
     show_gizmo: bool,
     equilateral_mode: bool,
     message: Option<String>,
+    undo_stack: UndoStack<FigureUndoState>,
 }
 
 #[derive(Clone)]
@@ -113,6 +124,7 @@ impl Default for FigureEditor {
             show_gizmo: true,
             equilateral_mode: false,
             message: None,
+            undo_stack: UndoStack::new(100),
         }
     }
 }
@@ -128,22 +140,59 @@ impl FigureEditor {
         });
     }
 
+    fn snapshot(&self) -> FigureUndoState {
+        FigureUndoState {
+            shape: self.shape.clone(),
+            figure_type: self.figure_type,
+            selected_point: self.selected_point,
+            equilateral_mode: self.equilateral_mode,
+            state: self.state,
+        }
+    }
+
+    fn restore(&mut self, state: FigureUndoState) {
+        self.shape = state.shape;
+        self.figure_type = state.figure_type;
+        self.selected_point = state.selected_point;
+        self.equilateral_mode = state.equilateral_mode;
+        self.state = state.state;
+    }
+
+    fn push_undo(&mut self) {
+        self.undo_stack.push(self.snapshot());
+    }
+
+    fn undo(&mut self) {
+        if let Some(state) = self.undo_stack.undo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(state) = self.undo_stack.redo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Nouveau Polygone").clicked() {
+                    self.push_undo();
                     self.shape = Some(FigureShape::Polygon(Polygon::new()));
                     self.figure_type = FigureType::Polygon;
                     self.state = EditorState::Add;
                     ui.close_menu();
                 }
                 if ui.button("Nouveau Libre").clicked() {
+                    self.push_undo();
                     self.shape = Some(FigureShape::FreeLinear(FreeLinearShape::new()));
                     self.figure_type = FigureType::FreeLinear;
                     self.state = EditorState::Add;
                     ui.close_menu();
                 }
                 if ui.button("Nouveau Triangle équilatéral").clicked() {
+                    self.push_undo();
                     self.shape = Some(FigureShape::Polygon(Polygon::new()));
                     self.figure_type = FigureType::Polygon;
                     self.equilateral_mode = true;
@@ -152,6 +201,7 @@ impl FigureEditor {
                 }
                 ui.separator();
                 if ui.button("Ouvrir").clicked() {
+                    self.push_undo();
                     if let Some((path, content)) = file_io::open_json("Ouvrir une figure", "firfw") {
                         match serde_json::from_str::<shared::ModelData>(&content) {
                             Ok(data) => {
@@ -324,6 +374,13 @@ impl FigureEditor {
         let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
         let pointer_released = ui.input(|i| i.pointer.any_released());
 
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
+            self.undo();
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
+            self.redo();
+        }
+
         if self.gizmo_dragging {
             if pointer_released {
                 self.gizmo_dragging = false;
@@ -361,6 +418,7 @@ impl FigureEditor {
                 }
             }
         } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+            self.push_undo();
             self.gizmo_dragging = true;
         } else if response.dragged_by(egui::PointerButton::Middle)
             || (response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_point.is_none())
@@ -373,6 +431,9 @@ impl FigureEditor {
                 let world_pos = self.camera.screen_to_world(mouse_pos, canvas_center);
                 match self.state {
                     EditorState::Add | EditorState::Point => {
+                        if self.shape.is_some() {
+                            self.push_undo();
+                        }
                         if let Some(ref mut shape) = self.shape {
                             let snapped = self.camera.snap(world_pos);
                             shape.add_point(snapped);
@@ -407,6 +468,9 @@ impl FigureEditor {
 
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(idx) = self.selected_point {
+                if self.shape.is_some() {
+                    self.push_undo();
+                }
                 if let Some(ref mut shape) = self.shape {
                     shape.remove_point(idx);
                     self.selected_point = None;

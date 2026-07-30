@@ -5,6 +5,13 @@ use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
 use super::shared;
+use super::undo::UndoStack;
+
+#[derive(Clone)]
+struct InitialUndoState {
+    shapes: Vec<ShapePatternData>,
+    selected: Vec<usize>,
+}
 
 pub struct InitialEditor {
     pub shapes: Vec<ShapePatternData>,
@@ -22,6 +29,7 @@ pub struct InitialEditor {
     show_gizmo: bool,
     selected: Vec<usize>,
     message: Option<String>,
+    undo_stack: UndoStack<InitialUndoState>,
 }
 
 impl Default for InitialEditor {
@@ -40,6 +48,7 @@ impl Default for InitialEditor {
             show_gizmo: true,
             selected: Vec::new(),
             message: None,
+            undo_stack: UndoStack::new(100),
         }
     }
 }
@@ -47,6 +56,7 @@ impl Default for InitialEditor {
 impl InitialEditor {
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
+            self.push_undo();
             self.model_points = pts;
             self.model_lines = lns;
             self.shapes = vec![ShapePatternData {
@@ -79,6 +89,34 @@ impl InitialEditor {
             });
     }
 
+    fn snapshot(&self) -> InitialUndoState {
+        InitialUndoState {
+            shapes: self.shapes.clone(),
+            selected: self.selected.clone(),
+        }
+    }
+
+    fn restore(&mut self, state: InitialUndoState) {
+        self.shapes = state.shapes;
+        self.selected = state.selected;
+    }
+
+    fn push_undo(&mut self) {
+        self.undo_stack.push(self.snapshot());
+    }
+
+    fn undo(&mut self) {
+        if let Some(state) = self.undo_stack.undo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(state) = self.undo_stack.redo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
     fn load_model(&mut self, content: &str) -> Result<(), String> {
         shared::load_model(content, &mut self.model_points, &mut self.model_lines)
     }
@@ -87,6 +125,7 @@ impl InitialEditor {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Ouvrir (tilfw)").clicked() {
+                    self.push_undo();
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un fichier initial", "filfw") {
                         match serde_json::from_str::<Vec<ShapePatternData>>(&content) {
                             Ok(data) => {
@@ -130,9 +169,11 @@ impl InitialEditor {
                 }
 
             if ui.button("Nouveau").clicked() {
+                self.push_undo();
                 self.shapes.push(ShapePatternData::default());
             }
             if ui.button("Dupliquer sélection").clicked() {
+                self.push_undo();
                 let to_dup: Vec<_> = self.selected.clone();
                 for &i in to_dup.iter().rev() {
                     if i < self.shapes.len() {
@@ -142,6 +183,7 @@ impl InitialEditor {
                 }
             }
             if ui.button("Supprimer sélection").clicked() {
+                self.push_undo();
                 let mut to_remove: Vec<usize> = self.selected.clone();
                 to_remove.sort_unstable_by(|a, b| b.cmp(a));
                 for &i in &to_remove {
@@ -234,6 +276,13 @@ impl InitialEditor {
         let pointer_released = ui.input(|i| i.pointer.any_released());
         let half = self.camera.point_size;
 
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
+            self.undo();
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
+            self.redo();
+        }
+
         if self.gizmo_dragging {
             if pointer_released {
                 self.gizmo_dragging = false;
@@ -272,9 +321,13 @@ impl InitialEditor {
                 }
             }
         } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+            self.push_undo();
             self.gizmo_dragging = true;
         } else if let Some(&idx) = self.selected.first() {
             if response.dragged_by(egui::PointerButton::Primary) && idx < self.shapes.len() {
+                if pointer_pressed {
+                    self.push_undo();
+                }
                 let delta = ui.input(|i| i.pointer.delta());
                 if delta != Vec2::ZERO {
                     let world_delta = self.camera.screen_delta_to_world(delta);
@@ -288,6 +341,7 @@ impl InitialEditor {
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
                 if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
+                    self.push_undo();
                     self.shapes.remove(idx);
                     self.selected.retain(|&x| x != idx);
                 }
@@ -304,13 +358,16 @@ impl InitialEditor {
         if let Some(&idx) = self.selected.first() {
             if idx < self.shapes.len() {
                 let p = &mut self.shapes[idx];
-                shared::render_transform_properties(
+                let changed = shared::render_transform_properties(
                     ui,
                     &format!("Initial {}", idx + 1),
                     &mut p.translate,
                     &mut p.rotate,
                     &mut p.scale,
                 );
+                if changed {
+                    self.push_undo();
+                }
             }
         }
     }
