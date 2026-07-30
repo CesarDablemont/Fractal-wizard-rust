@@ -6,11 +6,19 @@ use crate::types::{Line, ShapePatternData};
 use crate::file_io;
 use crate::gizmo::{self, GizmoHit};
 use super::shared;
+use super::undo::UndoStack;
 
 #[derive(Serialize, Deserialize)]
 struct PatternFile {
     display_parent: bool,
     patterns: Vec<ShapePatternData>,
+}
+
+#[derive(Clone)]
+struct PatternUndoState {
+    patterns: Vec<ShapePatternData>,
+    display_parent: bool,
+    selected: Vec<usize>,
 }
 
 pub struct PatternEditor {
@@ -31,7 +39,10 @@ pub struct PatternEditor {
     gizmo_dragging: bool,
     show_gizmo: bool,
     selected: Vec<usize>,
+    last_clicked: Option<usize>,
     message: Option<String>,
+    undo_stack: UndoStack<PatternUndoState>,
+    property_dragging: bool,
 }
 
 impl Default for PatternEditor {
@@ -52,7 +63,10 @@ impl Default for PatternEditor {
             gizmo_dragging: false,
             show_gizmo: true,
             selected: Vec::new(),
+            last_clicked: None,
             message: None,
+            undo_stack: UndoStack::new(100),
+            property_dragging: false,
         }
     }
 }
@@ -65,6 +79,9 @@ impl PatternEditor {
         }
 
         if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
+            if !self.selected.is_empty() {
+                self.push_undo();
+            }
             let mut to_remove: Vec<usize> = self.selected.clone();
             to_remove.sort_unstable_by(|a, b| b.cmp(a));
             for &i in &to_remove {
@@ -98,6 +115,37 @@ impl PatternEditor {
             });
     }
 
+    fn snapshot(&self) -> PatternUndoState {
+        PatternUndoState {
+            patterns: self.patterns.clone(),
+            display_parent: self.display_parent,
+            selected: self.selected.clone(),
+        }
+    }
+
+    fn restore(&mut self, state: PatternUndoState) {
+        self.patterns = state.patterns;
+        self.display_parent = state.display_parent;
+        self.selected = state.selected;
+        self.recalculate_dimension();
+    }
+
+    fn push_undo(&mut self) {
+        self.undo_stack.push(self.snapshot());
+    }
+
+    fn undo(&mut self) {
+        if let Some(state) = self.undo_stack.undo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(state) = self.undo_stack.redo(self.snapshot()) {
+            self.restore(state);
+        }
+    }
+
     fn load_model(&mut self, content: &str) -> Result<(), String> {
         shared::load_model(content, &mut self.model_points, &mut self.model_lines)
     }
@@ -106,6 +154,7 @@ impl PatternEditor {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Ouvrir (ptnfw)").clicked() {
+                    self.push_undo();
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un pattern", "ptnfw") {
                         match serde_json::from_str::<PatternFile>(&content) {
                             Ok(data) => {
@@ -156,9 +205,11 @@ impl PatternEditor {
                 }
 
             if ui.button("Nouveau pattern").clicked() {
+                self.push_undo();
                 self.patterns.push(ShapePatternData::default());
             }
             if ui.button("Dupliquer sélection").clicked() {
+                self.push_undo();
                 let to_dup: Vec<_> = self.selected.clone();
                 for &i in to_dup.iter().rev() {
                     if i < self.patterns.len() {
@@ -168,6 +219,7 @@ impl PatternEditor {
                 }
             }
             if ui.button("Supprimer sélection").clicked() {
+                self.push_undo();
                 let mut to_remove: Vec<usize> = self.selected.clone();
                 to_remove.sort_unstable_by(|a, b| b.cmp(a));
                 for &i in &to_remove {
@@ -194,7 +246,15 @@ impl PatternEditor {
             );
             let selected = self.selected.contains(&i);
             if ui.selectable_label(selected, &label).clicked() {
-                if ui.input(|i| i.modifiers.ctrl) {
+                if ui.input(|i| i.modifiers.shift) {
+                    if let Some(anchor) = self.last_clicked {
+                        let start = anchor.min(i);
+                        let end = anchor.max(i);
+                        self.selected = (start..=end).collect();
+                    } else {
+                        self.selected = vec![i];
+                    }
+                } else if ui.input(|i| i.modifiers.ctrl) {
                     if selected {
                         self.selected.retain(|&x| x != i);
                     } else {
@@ -203,6 +263,7 @@ impl PatternEditor {
                 } else {
                     self.selected = vec![i];
                 }
+                self.last_clicked = Some(i);
             }
         }
         if self.patterns.is_empty() {
@@ -270,6 +331,13 @@ impl PatternEditor {
         let pointer_released = ui.input(|i| i.pointer.any_released());
         let half = self.camera.point_size;
 
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
+            self.undo();
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
+            self.redo();
+        }
+
         if self.gizmo_dragging {
             if pointer_released {
                 self.gizmo_dragging = false;
@@ -310,9 +378,13 @@ impl PatternEditor {
                 }
             }
         } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
+            self.push_undo();
             self.gizmo_dragging = true;
         } else if let Some(&idx) = self.selected.first() {
             if response.dragged_by(egui::PointerButton::Primary) && idx < self.patterns.len() {
+                if pointer_pressed {
+                    self.push_undo();
+                }
                 let delta = ui.input(|i| i.pointer.delta());
                 if delta != Vec2::ZERO {
                     let world_delta = self.camera.screen_delta_to_world(delta);
@@ -327,6 +399,7 @@ impl PatternEditor {
         if response.clicked_by(egui::PointerButton::Secondary) {
             if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
                 if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
+                    self.push_undo();
                     self.patterns.remove(idx);
                     self.selected.retain(|&x| x != idx);
                 }
@@ -346,16 +419,43 @@ impl PatternEditor {
 
         if let Some(&idx) = self.selected.first() {
             if idx < self.patterns.len() {
-                let p = &mut self.patterns[idx];
-                let changed = shared::render_transform_properties(
-                    ui,
-                    &format!("Pattern {}", idx + 1),
-                    &mut p.translate,
-                    &mut p.rotate,
-                    &mut p.scale,
-                );
+                let old_translate = self.patterns[idx].translate;
+                let old_rotate = self.patterns[idx].rotate;
+                let old_scale = self.patterns[idx].scale;
+
+                let old_state = self.snapshot();
+
+                let changed = {
+                    let p = &mut self.patterns[idx];
+                    shared::render_transform_properties(
+                        ui,
+                        &format!("Pattern {}", idx + 1),
+                        &mut p.translate,
+                        &mut p.rotate,
+                        &mut p.scale,
+                    )
+                };
+
                 if changed {
+                    if !self.property_dragging {
+                        self.property_dragging = true;
+                        self.undo_stack.push(old_state);
+                    }
+
+                    let d_translate = self.patterns[idx].translate - old_translate;
+                    let d_rotate = self.patterns[idx].rotate - old_rotate;
+                    let d_scale = self.patterns[idx].scale - old_scale;
+
+                    for &sel in &self.selected {
+                        if sel != idx && sel < self.patterns.len() {
+                            self.patterns[sel].translate += d_translate;
+                            self.patterns[sel].rotate += d_rotate;
+                            self.patterns[sel].scale += d_scale;
+                        }
+                    }
                     self.recalculate_dimension();
+                } else {
+                    self.property_dragging = false;
                 }
             }
         }
