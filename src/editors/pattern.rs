@@ -406,15 +406,32 @@ impl PatternEditor {
 
         if let Some(&idx) = self.selected.first() {
             if idx < self.patterns.len() {
-                let p = &mut self.patterns[idx];
-                let changed = shared::render_transform_properties(
-                    ui,
-                    &format!("Pattern {}", idx + 1),
-                    &mut p.translate,
-                    &mut p.rotate,
-                    &mut p.scale,
-                );
+                let (changed, d_translate, d_rotate, d_scale) = {
+                    let p = &mut self.patterns[idx];
+                    let old_translate = p.translate;
+                    let old_rotate = p.rotate;
+                    let old_scale = p.scale;
+                    let changed = shared::render_transform_properties(
+                        ui,
+                        &format!("Pattern {}", idx + 1),
+                        &mut p.translate,
+                        &mut p.rotate,
+                        &mut p.scale,
+                    );
+                    if changed {
+                        (true, p.translate - old_translate, p.rotate - old_rotate, p.scale - old_scale)
+                    } else {
+                        (false, Vec2::ZERO, 0.0, 0.0)
+                    }
+                };
                 if changed {
+                    for &sel in &self.selected {
+                        if sel != idx && sel < self.patterns.len() {
+                            self.patterns[sel].translate += d_translate;
+                            self.patterns[sel].rotate += d_rotate;
+                            self.patterns[sel].scale += d_scale;
+                        }
+                    }
                     self.push_undo();
                     self.recalculate_dimension();
                 }
