@@ -90,7 +90,7 @@
     }
   ],
   "iterations": 6,
-  "regroup": false,
+  "regroup": true,
   "add_delta": false,
   "delta": [
     0.0,

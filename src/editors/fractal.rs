@@ -655,6 +655,27 @@ impl FractalEditor {
             return;
         }
 
+        if self.selected_simulation.is_some() && !self.global_heatmap.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label("Rendu:");
+                egui::ComboBox::from_id_salt("render_mode")
+                    .selected_text(match self.render_mode {
+                        RenderMode::Normal => "Normal",
+                        RenderMode::GlobalHeatMap => "Heatmap globale",
+                        RenderMode::IndividualHeatMap => "Heatmap individuelle",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.render_mode, RenderMode::Normal, "Normal");
+                        ui.selectable_value(&mut self.render_mode, RenderMode::GlobalHeatMap, "Heatmap globale");
+                        ui.selectable_value(&mut self.render_mode, RenderMode::IndividualHeatMap, "Heatmap individuelle");
+                    });
+            });
+            if self.render_mode != RenderMode::Normal {
+                ui.checkbox(&mut self.show_heat_score, "Afficher score");
+            }
+            ui.separator();
+        }
+
         let mut clicked: Option<usize> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for (i, sim) in self.simulations.iter().enumerate() {
@@ -679,27 +700,6 @@ impl FractalEditor {
             );
             self.current_step = 0;
             self.is_playing = false;
-        }
-
-        if self.selected_simulation.is_some() && !self.global_heatmap.is_empty() {
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("Rendu:");
-                egui::ComboBox::from_id_salt("render_mode")
-                    .selected_text(match self.render_mode {
-                        RenderMode::Normal => "Normal",
-                        RenderMode::GlobalHeatMap => "Heatmap globale",
-                        RenderMode::IndividualHeatMap => "Heatmap individuelle",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.render_mode, RenderMode::Normal, "Normal");
-                        ui.selectable_value(&mut self.render_mode, RenderMode::GlobalHeatMap, "Heatmap globale");
-                        ui.selectable_value(&mut self.render_mode, RenderMode::IndividualHeatMap, "Heatmap individuelle");
-                    });
-            });
-            if self.render_mode != RenderMode::Normal {
-                ui.checkbox(&mut self.show_heat_score, "Afficher score");
-            }
         }
     }
 
@@ -892,8 +892,8 @@ impl FractalEditor {
 
         if let Some(ref fractal) = self.fractal {
             ui.label(format!("Dimension théorique: {:.4}", fractal.dimension));
-            ui.label(format!("Points: {}", fractal.points.len()));
             ui.label(format!("Lignes: {}", fractal.lines.len()));
+            ui.label(format!("Points: {}", fractal.points.len()));
 
             if let Some(ref bc) = fractal.box_counting {
                 ui.separator();
