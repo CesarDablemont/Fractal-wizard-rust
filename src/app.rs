@@ -89,7 +89,7 @@ impl eframe::App for FractalWizardApp {
             self.active = ActiveEditor::Fractal;
         }
 
-        if self.fractal_editor.is_playing {
+        if self.fractal_editor.is_playing || self.fractal_editor.simulation_pending() {
             ctx.request_repaint();
         }
     }
