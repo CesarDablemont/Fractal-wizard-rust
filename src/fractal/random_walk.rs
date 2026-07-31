@@ -4,6 +4,8 @@ use rand::rngs::ThreadRng;
 use crate::fractal::generator::merge_vertices;
 use crate::types::{Line, RandomWalkInfo};
 
+const MAX_SIMULATION_TIME: f64 = 5.0;
+
 pub struct RandomWalkStats {
     pub success_count: u64,
     pub polya_number: f32,
@@ -95,7 +97,8 @@ fn run_with_min_steps(
     let mut sim = run_single(points, lines, start, max_steps, beta, rng);
     while min_steps > 0
         && sim.steps() < min_steps as usize
-        && start_time.elapsed().as_secs_f64() <= 1.0
+        && !sim.timed_out
+        && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
     {
         sim = run_single(points, lines, start, max_steps, beta, rng);
     }
@@ -113,8 +116,11 @@ fn run_single(
     let mut info = RandomWalkInfo::default();
     info.walk_steps.push(start);
 
+    let start_time = std::time::Instant::now();
     let mut current = start;
-    while info.steps() < max_steps as usize {
+    while info.steps() < max_steps as usize
+        && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
+    {
         let connected: Vec<usize> = lines
             .iter()
             .filter(|l| l[0] == current || l[1] == current)
@@ -162,6 +168,13 @@ fn run_single(
             info.is_random_walk_done = true;
             break;
         }
+    }
+
+    if !info.is_random_walk_done
+        && info.steps() < max_steps as usize
+        && start_time.elapsed().as_secs_f64() > MAX_SIMULATION_TIME
+    {
+        info.timed_out = true;
     }
 
     info

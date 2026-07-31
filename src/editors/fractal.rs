@@ -355,6 +355,8 @@ impl FractalEditor {
         }
 
         let sim = runner.run_next();
+        let timed_out = sim.timed_out;
+        let steps = sim.steps();
         self.simulations.push(sim);
         self.stats = Some(random_walk::calculate_stats(&self.simulations, self.simulation_count));
         self.global_heatmap = heatmap::calculate_global_heatmap(points_count, &self.simulations);
@@ -363,17 +365,21 @@ impl FractalEditor {
             self.individual_heatmap = heatmap::calculate_individual_heatmap(points_count, &self.simulations[0]);
         }
 
+        if timed_out {
+            let n = self.simulations.len();
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::error(format!(
+                    "Simulation lente : la simulation {n} a dépassé la limite d'1s ({steps} étapes, marquée Pas fini)"
+                )),
+            );
+        }
+
         if runner.is_done() {
             let max_time = runner.max_simulation_time();
             self.simulation_runner = None;
             if let Some(stats) = &mut self.stats {
                 stats.max_simulation_time = max_time;
-            }
-            if max_time > 1.0 {
-                shared::set_status_message(
-                    &mut self.message,
-                    shared::StatusMessage::error(format!("Simulation lente : une simulation a pris {max_time:.2}s (limite de 1s dépassée)")),
-                );
             }
         }
     }
