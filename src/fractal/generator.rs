@@ -213,13 +213,34 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
         let sl = get_lines(s.translate, s.rotate, s.scale);
 
         for &p in &sp {
-            find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, p, s.scale, *regroup);
+            find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, p, s.scale);
         }
         for seg in &sl {
-            let a_idx = find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, seg[0], s.scale, *regroup);
-            let b_idx = find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, seg[1], s.scale, *regroup);
+            let a_idx = find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, seg[0], s.scale);
+            let b_idx = find_or_add_point(&mut final_points, &mut final_point_scale, &mut point_map, seg[1], s.scale);
             final_lines.push([a_idx, b_idx]);
         }
+    }
+
+    if *regroup {
+        let (canonical, merged_lines) = merge_vertices(&final_points, &final_lines);
+        let mut remap: Vec<usize> = vec![usize::MAX; final_points.len()];
+        let mut compacted_points: Vec<Pos2> = Vec::new();
+        let mut compacted_scales: Vec<f32> = Vec::new();
+        for i in 0..final_points.len() {
+            let rep = canonical[i];
+            if remap[rep] == usize::MAX {
+                remap[rep] = compacted_points.len();
+                compacted_points.push(final_points[rep]);
+                compacted_scales.push(final_point_scale[rep]);
+            }
+            if final_point_scale[i] > compacted_scales[remap[rep]] {
+                compacted_scales[remap[rep]] = final_point_scale[i];
+            }
+        }
+        final_points = compacted_points;
+        final_point_scale = compacted_scales;
+        final_lines = merged_lines.iter().map(|l| [remap[l[0]], remap[l[1]]]).collect();
     }
 
     let dimension = if !pattern.is_empty() && pattern[0].scale > 1.0 {
@@ -317,31 +338,61 @@ fn find_or_add_point(
     map: &mut HashMap<u64, usize>,
     p: Pos2,
     scale: f32,
-    regroup: bool,
 ) -> usize {
     let key = point_key(p);
     if let Some(&idx) = map.get(&key) {
         scales[idx] = scales[idx].max(scale);
         return idx;
     }
-    if regroup {
-        let tolerance = 0.001;
-        let tolerance_sq = tolerance * tolerance;
-        for (i, &pt) in points.iter().enumerate() {
-            let dx = pt.x - p.x;
-            let dy = pt.y - p.y;
-            if dx * dx + dy * dy < tolerance_sq {
-                scales[i] = scales[i].max(scale);
-                map.insert(key, i);
-                return i;
-            }
-        }
-    }
     let idx = points.len();
     points.push(p);
     scales.push(scale);
     map.insert(key, idx);
     idx
+}
+
+pub(crate) fn merge_vertices(points: &[Pos2], lines: &[Line]) -> (Vec<usize>, Vec<Line>) {
+    let mut max_coord = 0.0f32;
+    for p in points {
+        max_coord = max_coord.max(p.x.abs()).max(p.y.abs());
+    }
+    let tolerance = (max_coord * 1e-5).max(1e-6);
+    let tolerance_sq = tolerance * tolerance;
+
+    let mut canonical: Vec<usize> = (0..points.len()).collect();
+    let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
+    for i in 0..points.len() {
+        let cell = (
+            (points[i].x / tolerance).floor() as i32,
+            (points[i].y / tolerance).floor() as i32,
+        );
+        let mut merged = false;
+        'cells: for cx in (cell.0 - 1)..=(cell.0 + 1) {
+            for cy in (cell.1 - 1)..=(cell.1 + 1) {
+                if let Some(entries) = grid.get(&(cx, cy)) {
+                    for &j in entries {
+                        let dx = points[i].x - points[j].x;
+                        let dy = points[i].y - points[j].y;
+                        if dx * dx + dy * dy < tolerance_sq {
+                            canonical[i] = canonical[j];
+                            merged = true;
+                            break 'cells;
+                        }
+                    }
+                }
+            }
+        }
+        if !merged {
+            grid.entry(cell).or_default().push(i);
+        }
+    }
+
+    let lines: Vec<Line> = lines
+        .iter()
+        .map(|l| [canonical[l[0]], canonical[l[1]]])
+        .filter(|l| l[0] != l[1])
+        .collect();
+    (canonical, lines)
 }
 
 fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
@@ -367,6 +418,7 @@ fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eframe::egui::vec2;
 
     #[test]
     fn sierpinski_dimension() {
@@ -433,5 +485,100 @@ mod tests {
             assert!(line[0] < result.points.len());
             assert!(line[1] < result.points.len());
         }
+    }
+
+    #[test]
+    fn regroup_merges_shared_vertices() {
+        let base = vec![pos2(-5.0, 0.0), pos2(5.0, 0.0), pos2(0.0, 8.660254)];
+        let pattern = vec![
+            ShapePatternData { translate: pos2(-2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(-6.7055225e-8, 4.330127), rotate: 0.0, scale: 2.0 },
+        ];
+        let initial = vec![ShapePatternData::default()];
+        let base_ref = &base;
+        let get_points = |t: Pos2, r: f32, s: f32| -> Vec<Pos2> {
+            base_ref.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect()
+        };
+        let get_lines = |t: Pos2, r: f32, s: f32| -> Vec<[Pos2; 2]> {
+            let pts: Vec<Pos2> = base_ref.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect();
+            vec![[pts[0], pts[1]], [pts[1], pts[2]], [pts[2], pts[0]]]
+        };
+        let unmerged = generate_fractal(&FractalConfig {
+            get_points: &get_points,
+            get_lines: &get_lines,
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 5,
+            regroup: false,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        });
+        assert_eq!(unmerged.points.len(), 410);
+
+        let merged = generate_fractal(&FractalConfig {
+            get_points: &get_points,
+            get_lines: &get_lines,
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 5,
+            regroup: true,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        });
+        assert_eq!(merged.points.len(), 366);
+
+        let n = merged.points.len();
+        let mut parent: Vec<usize> = (0..n).collect();
+        fn find(p: &mut [usize], i: usize) -> usize {
+            let mut r = i;
+            while p[r] != r {
+                r = p[r];
+            }
+            r
+        }
+        for l in &merged.lines {
+            let ra = find(&mut parent, l[0]);
+            let rb = find(&mut parent, l[1]);
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+        for i in 1..n {
+            assert_eq!(find(&mut parent, i), find(&mut parent, 0), "graphe déconnecté");
+        }
+    }
+
+    #[test]
+    fn regroup_max_depth_count() {
+        let base = vec![pos2(-5.0, 0.0), pos2(5.0, 0.0), pos2(0.0, 8.660254)];
+        let pattern = vec![
+            ShapePatternData { translate: pos2(-2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(-6.7055225e-8, 4.330127), rotate: 0.0, scale: 2.0 },
+        ];
+        let initial = vec![ShapePatternData::default()];
+        let base_ref = &base;
+        let get_points = |t: Pos2, r: f32, s: f32| -> Vec<Pos2> {
+            base_ref.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect()
+        };
+        let get_lines = |t: Pos2, r: f32, s: f32| -> Vec<[Pos2; 2]> {
+            let pts: Vec<Pos2> = base_ref.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect();
+            vec![[pts[0], pts[1]], [pts[1], pts[2]], [pts[2], pts[0]]]
+        };
+        let result = generate_fractal(&FractalConfig {
+            get_points: &get_points,
+            get_lines: &get_lines,
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 10,
+            regroup: true,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        });
+        assert_eq!(result.points.len(), 88_575);
     }
 }

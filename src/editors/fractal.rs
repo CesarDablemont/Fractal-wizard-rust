@@ -159,7 +159,7 @@ impl Default for FractalEditor {
             state: EditorState::Mouse,
             selected_points: Vec::new(),
             iterations: 3,
-            regroup: false,
+            regroup: true,
             add_delta: false,
             delta: Vec2::ZERO,
             delta_intervals: 1000,
@@ -338,6 +338,15 @@ impl FractalEditor {
         self.global_heatmap = heatmap::calculate_global_heatmap(points.len(), &self.simulations);
         if !self.simulations.is_empty() {
             self.individual_heatmap = heatmap::calculate_individual_heatmap(points.len(), &self.simulations[0]);
+        }
+
+        if let Some(ref stats) = self.stats {
+            if stats.max_simulation_time > 1.0 {
+                shared::set_status_message(
+                    &mut self.message,
+                    shared::StatusMessage::error(format!("Simulation lente : une simulation a pris {:.2}s (limite de 1s dépassée)", stats.max_simulation_time)),
+                );
+            }
         }
     }
 
