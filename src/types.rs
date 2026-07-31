@@ -44,6 +44,7 @@ pub struct RandomWalkInfo {
     pub walk_steps: Vec<usize>,
     pub length_walk: f32,
     pub is_random_walk_done: bool,
+    pub timed_out: bool,
 }
 
 impl RandomWalkInfo {
@@ -58,6 +59,7 @@ impl Default for RandomWalkInfo {
             walk_steps: Vec::new(),
             length_walk: 0.0,
             is_random_walk_done: false,
+            timed_out: false,
         }
     }
 }

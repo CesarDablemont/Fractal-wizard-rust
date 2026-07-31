@@ -1,7 +1,7 @@
 use eframe::egui::{self, Align2, Color32, FontId, Id, pos2, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::fractal::generator::{self, FractalResult};
-use crate::fractal::random_walk::{self, RandomWalkStats};
+use crate::fractal::random_walk::{self, RandomWalkStats, SimulationRunner};
 use crate::heatmap::{self, heatmap_color};
 use crate::scene::camera::Camera;
 use crate::scene::canvas::{self, CanvasRenderer};
@@ -57,6 +57,7 @@ pub struct FractalEditor {
     pub allow_min: bool,
     pub allow_max: bool,
     pub beta: f32,
+    simulation_runner: Option<SimulationRunner>,
 
     pub global_heatmap: Vec<f32>,
     pub individual_heatmap: Vec<f32>,
@@ -144,6 +145,7 @@ impl Default for FractalEditor {
             allow_min: true,
             allow_max: true,
             beta: 0.0,
+            simulation_runner: None,
             global_heatmap: Vec::new(),
             individual_heatmap: Vec::new(),
             render_mode: RenderMode::Normal,
@@ -314,14 +316,19 @@ impl FractalEditor {
         self.canvas_renderer.rebuild_chunks = true;
     }
 
-    pub fn run_simulation(&mut self, start_idx: usize) {
+    pub fn start_simulation(&mut self, start_idx: usize) {
         let points = self.fractal_points().to_vec();
         let lines = self.fractal_lines().to_vec();
         if points.is_empty() || lines.is_empty() {
             return;
         }
 
-        let (sims, stats) = random_walk::run_simulations(
+        self.simulations.clear();
+        self.stats = None;
+        self.selected_simulation = None;
+        self.global_heatmap.clear();
+        self.individual_heatmap.clear();
+        self.simulation_runner = Some(SimulationRunner::new(
             &points,
             &lines,
             start_idx,
@@ -329,23 +336,50 @@ impl FractalEditor {
             if self.allow_min { self.min_steps } else { 0 },
             if self.allow_max { self.max_steps } else { u64::MAX },
             self.beta,
-        );
+        ));
+    }
 
-        self.simulations = sims;
-        self.stats = Some(stats);
-        self.selected_simulation = Some(0);
+    pub fn simulation_pending(&self) -> bool {
+        self.simulation_runner.is_some()
+    }
 
-        self.global_heatmap = heatmap::calculate_global_heatmap(points.len(), &self.simulations);
-        if !self.simulations.is_empty() {
-            self.individual_heatmap = heatmap::calculate_individual_heatmap(points.len(), &self.simulations[0]);
+    fn advance_simulation(&mut self) {
+        let points_count = self.fractal_points().len();
+        let runner = match &mut self.simulation_runner {
+            Some(runner) => runner,
+            None => return,
+        };
+        if runner.is_done() {
+            self.simulation_runner = None;
+            return;
         }
 
-        if let Some(ref stats) = self.stats {
-            if stats.max_simulation_time > 1.0 {
-                shared::set_status_message(
-                    &mut self.message,
-                    shared::StatusMessage::error(format!("Simulation lente : une simulation a pris {:.2}s (limite de 1s dépassée)", stats.max_simulation_time)),
-                );
+        let sim = runner.run_next();
+        let timed_out = sim.timed_out;
+        let steps = sim.steps();
+        self.simulations.push(sim);
+        self.stats = Some(random_walk::calculate_stats(&self.simulations, self.simulation_count));
+        self.global_heatmap = heatmap::calculate_global_heatmap(points_count, &self.simulations);
+        if self.selected_simulation.is_none() {
+            self.selected_simulation = Some(0);
+            self.individual_heatmap = heatmap::calculate_individual_heatmap(points_count, &self.simulations[0]);
+        }
+
+        if timed_out {
+            let n = self.simulations.len();
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::error(format!(
+                    "Simulation lente : la simulation {n} a dépassé la limite d'1s ({steps} étapes, marquée Pas fini)"
+                )),
+            );
+        }
+
+        if runner.is_done() {
+            let max_time = runner.max_simulation_time();
+            self.simulation_runner = None;
+            if let Some(stats) = &mut self.stats {
+                stats.max_simulation_time = max_time;
             }
         }
     }
@@ -368,6 +402,7 @@ impl FractalEditor {
 
     pub fn render(&mut self, ctx: &egui::Context) {
         self.update_chunks();
+        self.advance_simulation();
 
         egui::TopBottomPanel::top("fractal_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
@@ -651,8 +686,18 @@ impl FractalEditor {
         ui.heading("Simulations");
 
         if self.simulations.is_empty() {
-            ui.label("Aucune simulation");
+            if let Some(runner) = &self.simulation_runner {
+                let (done, total) = runner.progress();
+                ui.label(format!("Simulation en cours : {done}/{total}"));
+            } else {
+                ui.label("Aucune simulation");
+            }
             return;
+        }
+
+        if let Some(runner) = &self.simulation_runner {
+            let (done, total) = runner.progress();
+            ui.label(format!("Simulation en cours : {done}/{total}"));
         }
 
         if self.selected_simulation.is_some() && !self.global_heatmap.is_empty() {
@@ -824,7 +869,7 @@ impl FractalEditor {
                     let half = self.camera.point_size / 2.0;
                     for (i, &p) in points.iter().enumerate() {
                         if (p.x - world.x).abs() <= half && (p.y - world.y).abs() <= half {
-                            self.run_simulation(i);
+                            self.start_simulation(i);
                             self.state = EditorState::Mouse;
                             break;
                         }
@@ -945,10 +990,13 @@ impl FractalEditor {
             ui.heading("Statistiques");
             ui.label(format!("Nombre de Polya: {:.2}%", stats.polya_number));
             ui.label(format!("Réussites: {}/{}", stats.success_count, self.simulation_count));
-            ui.label(format!("Étapes moyennes: {:.2}", stats.average_steps));
+            ui.label(format!("Nombre d'étapes moy: {:.2}", stats.average_steps));
             ui.label(format!("Variance: {:.2}", stats.variance_steps));
             ui.label(format!("Écart-type: {:.2}", stats.std_dev_steps));
             ui.label(format!("Distance moyenne: {:.2}", stats.average_length));
+            if stats.max_simulation_time > 0.0 {
+                ui.label(format!("Temps max simulation: {:.2}s", stats.max_simulation_time));
+            }
         }
     }
 

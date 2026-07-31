@@ -1,7 +1,10 @@
 use eframe::egui::Pos2;
 use rand::Rng;
+use rand::rngs::ThreadRng;
 use crate::fractal::generator::merge_vertices;
 use crate::types::{Line, RandomWalkInfo};
+
+const MAX_SIMULATION_TIME: f64 = 5.0;
 
 pub struct RandomWalkStats {
     pub success_count: u64,
@@ -13,37 +16,93 @@ pub struct RandomWalkStats {
     pub max_simulation_time: f64,
 }
 
-pub fn run_simulations(
-    points: &[Pos2],
-    lines: &[Line],
+pub struct SimulationRunner {
+    points: Vec<Pos2>,
+    lines: Vec<Line>,
     start_index: usize,
-    count: u32,
     min_steps: u64,
     max_steps: u64,
     beta: f32,
-) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
-    let (canonical, lines) = merge_vertices(points, lines);
-    let start_index = canonical[start_index];
-    let mut simulations = Vec::with_capacity(count as usize);
-    let mut rng = rand::rng();
-    let mut max_simulation_time = 0.0_f64;
+    total_count: u32,
+    done_count: u32,
+    max_simulation_time: f64,
+    rng: ThreadRng,
+}
 
-    for _ in 0..count {
-        let start = std::time::Instant::now();
-        let mut sim = run_single(points, &lines, start_index, max_steps, beta, &mut rng);
-        while min_steps > 0
-            && sim.steps() < min_steps as usize
-            && start.elapsed().as_secs_f64() <= 1.0
-        {
-            sim = run_single(points, &lines, start_index, max_steps, beta, &mut rng);
+impl SimulationRunner {
+    pub fn new(
+        points: &[Pos2],
+        lines: &[Line],
+        start_index: usize,
+        count: u32,
+        min_steps: u64,
+        max_steps: u64,
+        beta: f32,
+    ) -> Self {
+        let (canonical, lines) = merge_vertices(points, lines);
+        let start_index = canonical[start_index];
+        Self {
+            points: points.to_vec(),
+            lines,
+            start_index,
+            min_steps,
+            max_steps,
+            beta,
+            total_count: count,
+            done_count: 0,
+            max_simulation_time: 0.0,
+            rng: rand::rng(),
         }
-        max_simulation_time = max_simulation_time.max(start.elapsed().as_secs_f64());
-        simulations.push(sim);
     }
 
-    let (simulations, mut stats) = compute_stats(simulations, count);
-    stats.max_simulation_time = max_simulation_time;
-    (simulations, stats)
+    pub fn is_done(&self) -> bool {
+        self.done_count >= self.total_count
+    }
+
+    pub fn progress(&self) -> (u32, u32) {
+        (self.done_count, self.total_count)
+    }
+
+    pub fn max_simulation_time(&self) -> f64 {
+        self.max_simulation_time
+    }
+
+    pub fn run_next(&mut self) -> RandomWalkInfo {
+        let start = std::time::Instant::now();
+        let sim = run_with_min_steps(
+            &self.points,
+            &self.lines,
+            self.start_index,
+            self.min_steps,
+            self.max_steps,
+            self.beta,
+            &mut self.rng,
+        );
+        self.max_simulation_time = self.max_simulation_time.max(start.elapsed().as_secs_f64());
+        self.done_count += 1;
+        sim
+    }
+}
+
+fn run_with_min_steps(
+    points: &[Pos2],
+    lines: &[Line],
+    start: usize,
+    min_steps: u64,
+    max_steps: u64,
+    beta: f32,
+    rng: &mut impl Rng,
+) -> RandomWalkInfo {
+    let start_time = std::time::Instant::now();
+    let mut sim = run_single(points, lines, start, max_steps, beta, rng);
+    while min_steps > 0
+        && sim.steps() < min_steps as usize
+        && !sim.timed_out
+        && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
+    {
+        sim = run_single(points, lines, start, max_steps, beta, rng);
+    }
+    sim
 }
 
 fn run_single(
@@ -57,8 +116,11 @@ fn run_single(
     let mut info = RandomWalkInfo::default();
     info.walk_steps.push(start);
 
+    let start_time = std::time::Instant::now();
     let mut current = start;
-    while info.steps() < max_steps as usize {
+    while info.steps() < max_steps as usize
+        && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
+    {
         let connected: Vec<usize> = lines
             .iter()
             .filter(|l| l[0] == current || l[1] == current)
@@ -108,30 +170,34 @@ fn run_single(
         }
     }
 
+    if !info.is_random_walk_done
+        && info.steps() < max_steps as usize
+        && start_time.elapsed().as_secs_f64() > MAX_SIMULATION_TIME
+    {
+        info.timed_out = true;
+    }
+
     info
 }
 
-fn compute_stats(
-    simulations: Vec<RandomWalkInfo>,
+pub fn calculate_stats(
+    simulations: &[RandomWalkInfo],
     total_count: u32,
-) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
+) -> RandomWalkStats {
     let successful: Vec<&RandomWalkInfo> =
         simulations.iter().filter(|s| s.is_random_walk_done).collect();
     let success_count = successful.len() as u64;
 
     if success_count == 0 {
-        return (
-            simulations,
-            RandomWalkStats {
-                success_count: 0,
-                polya_number: 0.0,
-                average_steps: 0.0,
-                variance_steps: 0.0,
-                std_dev_steps: 0.0,
-                average_length: 0.0,
-                max_simulation_time: 0.0,
-            },
-        );
+        return RandomWalkStats {
+            success_count: 0,
+            polya_number: 0.0,
+            average_steps: 0.0,
+            variance_steps: 0.0,
+            std_dev_steps: 0.0,
+            average_length: 0.0,
+            max_simulation_time: 0.0,
+        };
     }
 
     let avg_steps: f32 =
@@ -148,18 +214,15 @@ fn compute_stats(
     let variance = squared_mean - avg_steps * avg_steps;
     let std_dev = variance.sqrt();
 
-    (
-        simulations,
-        RandomWalkStats {
-            success_count,
-            polya_number: polya,
-            average_steps: avg_steps,
-            variance_steps: variance,
-            std_dev_steps: std_dev,
-            average_length: avg_length,
-            max_simulation_time: 0.0,
-        },
-    )
+    RandomWalkStats {
+        success_count,
+        polya_number: polya,
+        average_steps: avg_steps,
+        variance_steps: variance,
+        std_dev_steps: std_dev,
+        average_length: avg_length,
+        max_simulation_time: 0.0,
+    }
 }
 
 #[cfg(test)]
@@ -167,11 +230,30 @@ mod tests {
     use super::*;
     use eframe::egui::pos2;
 
+    fn run_all(
+        points: &[Pos2],
+        lines: &[Line],
+        start: usize,
+        count: u32,
+        min_steps: u64,
+        max_steps: u64,
+        beta: f32,
+    ) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
+        let mut runner = SimulationRunner::new(points, lines, start, count, min_steps, max_steps, beta);
+        let mut sims = Vec::with_capacity(count as usize);
+        while !runner.is_done() {
+            sims.push(runner.run_next());
+        }
+        let mut stats = calculate_stats(&sims, count);
+        stats.max_simulation_time = runner.max_simulation_time();
+        (sims, stats)
+    }
+
     #[test]
     fn trivial_triangle() {
         let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
         let lines = vec![[0, 1], [1, 2], [2, 0]];
-        let (_, stats) = run_simulations(&points, &lines, 0, 10, 0, 100, 0.0);
+        let (_, stats) = run_all(&points, &lines, 0, 10, 0, 100, 0.0);
         assert!(stats.success_count > 0);
     }
 
@@ -179,7 +261,7 @@ mod tests {
     fn compute_stats_valid() {
         let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
         let lines = vec![[0, 1], [1, 2], [2, 0]];
-        let (_, stats) = run_simulations(&points, &lines, 0, 20, 0, 100, 0.0);
+        let (_, stats) = run_all(&points, &lines, 0, 20, 0, 100, 0.0);
         assert!(stats.polya_number >= 0.0 && stats.polya_number <= 100.0);
         assert!(stats.average_steps > 0.0);
         assert!(stats.variance_steps >= 0.0);
@@ -190,7 +272,7 @@ mod tests {
         let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
         let lines = vec![[0, 1], [1, 2]];
         let max_steps = 5;
-        let (sims, _) = run_simulations(&points, &lines, 0, 5, 0, max_steps, 0.0);
+        let (sims, _) = run_all(&points, &lines, 0, 5, 0, max_steps, 0.0);
         for sim in &sims {
             assert!(sim.steps() <= max_steps as usize);
         }
@@ -231,7 +313,7 @@ mod tests {
             .max_by(|a, b| a.1.y.total_cmp(&b.1.y))
             .unwrap().0;
         let min_steps = 100;
-        let (sims, _) = run_simulations(&result.points, &result.lines, apex_idx, 10, min_steps, 10_000, 0.0);
+        let (sims, _) = run_all(&result.points, &result.lines, apex_idx, 10, min_steps, 10_000, 0.0);
         for sim in &sims {
             assert!(sim.steps() >= min_steps as usize);
         }
@@ -241,7 +323,7 @@ mod tests {
     fn min_steps_greater_than_max_does_not_hang() {
         let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
         let lines = vec![[0, 1], [1, 2], [2, 0]];
-        let (sims, _) = run_simulations(&points, &lines, 0, 1, 10_000, 50, 0.0);
+        let (sims, _) = run_all(&points, &lines, 0, 1, 10_000, 50, 0.0);
         for sim in &sims {
             assert!(sim.steps() <= 50);
         }

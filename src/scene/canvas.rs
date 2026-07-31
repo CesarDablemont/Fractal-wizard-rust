@@ -221,7 +221,7 @@ impl CanvasRenderer {
             }
             let p = camera.world_to_screen(points[i], center);
             let color = if highlight == Some(i) {
-                Color32::WHITE
+                Color32::from_rgb(0, 180, 0)
             } else {
                 colors.get(i).copied().flatten().unwrap_or(Color32::RED)
             };
@@ -236,6 +236,15 @@ impl CanvasRenderer {
 
         if !mesh.vertices.is_empty() {
             shapes.push(Shape::Mesh(Arc::new(mesh)));
+        }
+
+        if let Some(idx) = highlight {
+            if idx < points.len() {
+                let p = camera.world_to_screen(points[idx], center);
+                let stroke_width = (half_size * 0.6).clamp(1.0, 4.0);
+                let rect = Rect::from_center_size(p, Vec2::splat(half_size * 2.0 - stroke_width));
+                shapes.push(Shape::rect_stroke(rect, 0.0, Stroke::new(stroke_width, Color32::BLACK), eframe::egui::StrokeKind::Outside));
+            }
         }
     }
 }
