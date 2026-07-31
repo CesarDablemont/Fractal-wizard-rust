@@ -19,6 +19,63 @@ pub struct ShapeTransform {
     pub scale: f32,
 }
 
+const STATUS_DURATION: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[derive(Clone)]
+pub struct StatusMessage {
+    pub text: String,
+    pub is_error: bool,
+    set_at: std::time::Instant,
+}
+
+impl StatusMessage {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            is_error: false,
+            set_at: std::time::Instant::now(),
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            is_error: true,
+            set_at: std::time::Instant::now(),
+        }
+    }
+}
+
+pub fn set_status_message(slot: &mut Option<StatusMessage>, msg: StatusMessage) {
+    if slot.as_ref().is_some_and(|m| m.is_error) && !msg.is_error {
+        return;
+    }
+    *slot = Some(msg);
+}
+
+pub fn render_status_message(ui: &mut egui::Ui, slot: &mut Option<StatusMessage>) {
+    let Some(msg) = slot else { return };
+    let set_at = msg.set_at;
+    let text = msg.text.clone();
+    let is_error = msg.is_error;
+    if set_at.elapsed() >= STATUS_DURATION {
+        *slot = None;
+        return;
+    }
+    ui.ctx().request_repaint();
+    let (bg, fg) = if is_error {
+        (Color32::from_rgb(80, 18, 18), Color32::from_rgb(255, 150, 150))
+    } else {
+        (Color32::from_rgb(15, 70, 35), Color32::from_rgb(150, 255, 175))
+    };
+    let font_id = egui::TextStyle::Button.resolve(ui.style());
+    let text_width = ui.fonts(|f| f.layout_no_wrap(text.clone(), font_id.clone(), fg).size().x);
+    let size = egui::vec2(text_width + 16.0, ui.spacing().interact_size.y);
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter().rect_filled(rect, 4, bg);
+    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, font_id, fg);
+}
+
 pub struct GizmoContext<'a> {
     pub ui: &'a egui::Ui,
     pub camera: &'a Camera,

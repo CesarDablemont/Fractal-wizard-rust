@@ -1,5 +1,6 @@
 use eframe::egui::Pos2;
 use rand::Rng;
+use crate::fractal::generator::merge_vertices;
 use crate::types::{Line, RandomWalkInfo};
 
 pub struct RandomWalkStats {
@@ -9,6 +10,7 @@ pub struct RandomWalkStats {
     pub variance_steps: f32,
     pub std_dev_steps: f32,
     pub average_length: f32,
+    pub max_simulation_time: f64,
 }
 
 pub fn run_simulations(
@@ -20,23 +22,28 @@ pub fn run_simulations(
     max_steps: u64,
     beta: f32,
 ) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
+    let (canonical, lines) = merge_vertices(points, lines);
+    let start_index = canonical[start_index];
     let mut simulations = Vec::with_capacity(count as usize);
     let mut rng = rand::rng();
+    let mut max_simulation_time = 0.0_f64;
 
     for _ in 0..count {
-        let sim = run_single(points, lines, start_index, max_steps, beta, &mut rng);
+        let start = std::time::Instant::now();
+        let mut sim = run_single(points, &lines, start_index, max_steps, beta, &mut rng);
+        while min_steps > 0
+            && sim.steps() < min_steps as usize
+            && start.elapsed().as_secs_f64() <= 1.0
+        {
+            sim = run_single(points, &lines, start_index, max_steps, beta, &mut rng);
+        }
+        max_simulation_time = max_simulation_time.max(start.elapsed().as_secs_f64());
         simulations.push(sim);
     }
 
-    if min_steps > 0 {
-        for sim in &mut simulations {
-            while sim.steps() < min_steps as usize {
-                *sim = run_single(points, lines, start_index, max_steps, beta, &mut rng);
-            }
-        }
-    }
-
-    compute_stats(&simulations, count)
+    let (simulations, mut stats) = compute_stats(simulations, count);
+    stats.max_simulation_time = max_simulation_time;
+    (simulations, stats)
 }
 
 fn run_single(
@@ -105,7 +112,7 @@ fn run_single(
 }
 
 fn compute_stats(
-    simulations: &[RandomWalkInfo],
+    simulations: Vec<RandomWalkInfo>,
     total_count: u32,
 ) -> (Vec<RandomWalkInfo>, RandomWalkStats) {
     let successful: Vec<&RandomWalkInfo> =
@@ -114,7 +121,7 @@ fn compute_stats(
 
     if success_count == 0 {
         return (
-            simulations.to_vec(),
+            simulations,
             RandomWalkStats {
                 success_count: 0,
                 polya_number: 0.0,
@@ -122,6 +129,7 @@ fn compute_stats(
                 variance_steps: 0.0,
                 std_dev_steps: 0.0,
                 average_length: 0.0,
+                max_simulation_time: 0.0,
             },
         );
     }
@@ -141,7 +149,7 @@ fn compute_stats(
     let std_dev = variance.sqrt();
 
     (
-        simulations.to_vec(),
+        simulations,
         RandomWalkStats {
             success_count,
             polya_number: polya,
@@ -149,6 +157,7 @@ fn compute_stats(
             variance_steps: variance,
             std_dev_steps: std_dev,
             average_length: avg_length,
+            max_simulation_time: 0.0,
         },
     )
 }
@@ -184,6 +193,57 @@ mod tests {
         let (sims, _) = run_simulations(&points, &lines, 0, 5, 0, max_steps, 0.0);
         for sim in &sims {
             assert!(sim.steps() <= max_steps as usize);
+        }
+    }
+
+    #[test]
+    fn min_steps_respected() {
+        use crate::fractal::generator;
+        use crate::shapes::shape::apply_transform;
+        use crate::types::ShapePatternData;
+        use eframe::egui::vec2;
+
+        let base = vec![pos2(-5.0, 0.0), pos2(5.0, 0.0), pos2(0.0, 8.660254)];
+        let pattern = vec![
+            ShapePatternData { translate: pos2(-2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(2.5, 0.0), rotate: 0.0, scale: 2.0 },
+            ShapePatternData { translate: pos2(-6.7055225e-8, 4.330127), rotate: 0.0, scale: 2.0 },
+        ];
+        let initial = vec![ShapePatternData::default()];
+        let config = generator::FractalConfig {
+            get_points: &|t, r, s| {
+                base.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect()
+            },
+            get_lines: &|t, r, s| {
+                let pts: Vec<Pos2> = base.iter().map(|&p| apply_transform(p, t, r, vec2(s, s))).collect();
+                vec![[pts[0], pts[1]], [pts[1], pts[2]], [pts[2], pts[0]]]
+            },
+            pattern: &pattern,
+            initial: &initial,
+            iterations: 5,
+            regroup: false,
+            display_parent: false,
+            delta_radius: 0.0,
+            density_sources: &[],
+        };
+        let result = generator::generate_fractal(&config);
+        let apex_idx = result.points.iter().enumerate()
+            .max_by(|a, b| a.1.y.total_cmp(&b.1.y))
+            .unwrap().0;
+        let min_steps = 100;
+        let (sims, _) = run_simulations(&result.points, &result.lines, apex_idx, 10, min_steps, 10_000, 0.0);
+        for sim in &sims {
+            assert!(sim.steps() >= min_steps as usize);
+        }
+    }
+
+    #[test]
+    fn min_steps_greater_than_max_does_not_hang() {
+        let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 0.866)];
+        let lines = vec![[0, 1], [1, 2], [2, 0]];
+        let (sims, _) = run_simulations(&points, &lines, 0, 1, 10_000, 50, 0.0);
+        for sim in &sims {
+            assert!(sim.steps() <= 50);
         }
     }
 }

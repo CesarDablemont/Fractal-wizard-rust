@@ -85,7 +85,7 @@ pub struct FractalEditor {
     pub selected_density_source: Option<usize>,
     dragging_density_source: Option<usize>,
 
-    message: Option<String>,
+    message: Option<shared::StatusMessage>,
 
     left_panel_version: u32,
     right_panel_version: u32,
@@ -159,7 +159,7 @@ impl Default for FractalEditor {
             state: EditorState::Mouse,
             selected_points: Vec::new(),
             iterations: 3,
-            regroup: false,
+            regroup: true,
             add_delta: false,
             delta: Vec2::ZERO,
             delta_intervals: 1000,
@@ -221,7 +221,7 @@ impl FractalEditor {
         });
         let elapsed = start.elapsed();
 
-        self.message = Some(format!("Générée en {elapsed:.2?}"));
+        shared::set_status_message(&mut self.message, shared::StatusMessage::info(format!("Générée en {elapsed:.2?}")));
 
         self.fractal = Some(result);
         self.canvas_renderer.rebuild_chunks = true;
@@ -339,6 +339,15 @@ impl FractalEditor {
         if !self.simulations.is_empty() {
             self.individual_heatmap = heatmap::calculate_individual_heatmap(points.len(), &self.simulations[0]);
         }
+
+        if let Some(ref stats) = self.stats {
+            if stats.max_simulation_time > 1.0 {
+                shared::set_status_message(
+                    &mut self.message,
+                    shared::StatusMessage::error(format!("Simulation lente : une simulation a pris {:.2}s (limite de 1s dépassée)", stats.max_simulation_time)),
+                );
+            }
+        }
     }
 
     fn update_chunks(&mut self) {
@@ -428,10 +437,10 @@ impl FractalEditor {
                                 self.delta_intervals = data.delta_intervals;
                                 self.density_sources = data.density_sources;
                                 self.selected_density_source = None;
-                                self.message = Some("Fractale chargée".into());
+                                shared::set_status_message(&mut self.message, shared::StatusMessage::info("Fractale chargée"));
                                 self.canvas_renderer.rebuild_chunks = true;
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -456,7 +465,7 @@ impl FractalEditor {
                         std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                     }).unwrap_or("fractale");
                     if file_io::save_json_path("Enregistrer la fractale", "ftlfw", &format!("{name}.ftlfw"), &json) {
-                        self.message = Some("Fractale enregistrée".into());
+                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Fractale enregistrée"));
                     }
                     ui.close_menu();
                 }
@@ -464,8 +473,8 @@ impl FractalEditor {
                 if ui.button("Importer figure (firfw)").clicked() {
                     if let Some((_path, content)) = file_io::open_json("Importer une figure", "firfw") {
                         match self.import_firfw(&content) {
-                            Ok(()) => self.message = Some("Figure importée".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure importée")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -473,8 +482,8 @@ impl FractalEditor {
                 if ui.button("Importer pattern (ptnfw)").clicked() {
                     if let Some((_path, content)) = file_io::open_json("Importer un pattern", "ptnfw") {
                         match self.import_ptnfw(&content) {
-                            Ok(()) => self.message = Some("Pattern importé".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern importé")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -482,8 +491,8 @@ impl FractalEditor {
                 if ui.button("Importer initiale (filfw)").clicked() {
                     if let Some((_path, content)) = file_io::open_json("Importer une figure initiale", "filfw") {
                         match self.import_filfw(&content) {
-                            Ok(()) => self.message = Some("Figure initiale importée".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure initiale importée")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -499,10 +508,10 @@ impl FractalEditor {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                         }).unwrap_or("fractale");
                         if file_io::save_csv("Exporter les points", &format!("{name}.csv"), &csv) {
-                            self.message = Some(format!("{} points exportés", fractal.points.len()));
+                            shared::set_status_message(&mut self.message, shared::StatusMessage::info(format!("{} points exportés", fractal.points.len())));
                         }
                     } else {
-                        self.message = Some("Aucune fractale à exporter".into());
+                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Aucune fractale à exporter"));
                     }
                     ui.close_menu();
                 }
@@ -634,10 +643,7 @@ impl FractalEditor {
                 }
             });
 
-            if let Some(ref msg) = self.message {
-                ui.separator();
-                ui.label(msg);
-            }
+            shared::render_status_message(ui, &mut self.message);
         });
     }
 

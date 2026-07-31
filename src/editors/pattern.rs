@@ -40,7 +40,7 @@ pub struct PatternEditor {
     show_gizmo: bool,
     selected: Vec<usize>,
     last_clicked: Option<usize>,
-    message: Option<String>,
+    message: Option<shared::StatusMessage>,
     undo_stack: UndoStack<PatternUndoState>,
     property_dragging: bool,
 }
@@ -161,9 +161,9 @@ impl PatternEditor {
                                 self.patterns = data.patterns;
                                 self.display_parent = data.display_parent;
                                 self.recalculate_dimension();
-                                self.message = Some("Pattern chargé".into());
+                                shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern chargé"));
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -175,7 +175,7 @@ impl PatternEditor {
                     };
                     let json = serde_json::to_string_pretty(&data).unwrap();
                     if file_io::save_json("Enregistrer le pattern", "ptnfw", &json) {
-                        self.message = Some("Pattern enregistré".into());
+                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern enregistré"));
                     }
                     ui.close_menu();
                 }
@@ -185,8 +185,8 @@ impl PatternEditor {
                 if ui.button("Ouvrir un modèle (firfw)").clicked() {
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un modèle", "firfw") {
                         match self.load_model(&content) {
-                            Ok(()) => self.message = Some("Modèle chargé".into()),
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Modèle chargé")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -230,10 +230,7 @@ impl PatternEditor {
                 self.selected.clear();
             }
 
-            if let Some(ref msg) = self.message {
-                ui.separator();
-                ui.label(msg);
-            }
+            shared::render_status_message(ui, &mut self.message);
         });
     }
 

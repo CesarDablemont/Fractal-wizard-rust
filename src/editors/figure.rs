@@ -35,7 +35,7 @@ pub struct FigureEditor {
     gizmo_dragging: bool,
     show_gizmo: bool,
     equilateral_mode: bool,
-    message: Option<String>,
+    message: Option<shared::StatusMessage>,
     undo_stack: UndoStack<FigureUndoState>,
 }
 
@@ -222,9 +222,9 @@ impl FigureEditor {
                                         FigureShape::FreeLinear(s)
                                     }
                                 });
-                                self.message = Some("Figure chargée".into());
+                                shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure chargée"));
                             }
-                            Err(e) => self.message = Some(format!("Erreur: {e}")),
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
                     }
                     ui.close_menu();
@@ -248,7 +248,7 @@ impl FigureEditor {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                         }).unwrap_or("figure");
                         if file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json) {
-                            self.message = Some("Figure enregistrée".into());
+                            shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée"));
                         }
                     }
                     ui.close_menu();
@@ -297,10 +297,7 @@ impl FigureEditor {
                     }
             }
 
-            if let Some(ref msg) = self.message {
-                ui.separator();
-                ui.label(msg);
-            }
+            shared::render_status_message(ui, &mut self.message);
         });
     }
 
