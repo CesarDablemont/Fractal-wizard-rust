@@ -990,7 +990,7 @@ impl FractalEditor {
             ui.heading("Statistiques");
             ui.label(format!("Nombre de Polya: {:.2}%", stats.polya_number));
             ui.label(format!("Réussites: {}/{}", stats.success_count, self.simulation_count));
-            ui.label(format!("Étapes moyennes: {:.2}", stats.average_steps));
+            ui.label(format!("Nombre d'étapes moy: {:.2}", stats.average_steps));
             ui.label(format!("Variance: {:.2}", stats.variance_steps));
             ui.label(format!("Écart-type: {:.2}", stats.std_dev_steps));
             ui.label(format!("Distance moyenne: {:.2}", stats.average_length));
