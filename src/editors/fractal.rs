@@ -89,6 +89,7 @@ pub struct FractalEditor {
     pub export_show: bool,
     pub export_points: bool,
     pub export_lines: bool,
+    pub export_weights: bool,
 
     message: Option<shared::StatusMessage>,
 
@@ -175,6 +176,7 @@ impl Default for FractalEditor {
             export_show: false,
             export_points: true,
             export_lines: true,
+            export_weights: false,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -470,13 +472,12 @@ impl FractalEditor {
                 ui.label("Éléments à exporter :");
                 ui.checkbox(&mut self.export_points, "Points (x, y)");
                 ui.checkbox(&mut self.export_lines, "Liaisons (i, j)");
-
-                // Poids t : réservé pour la prise en compte de la distance entre points.
-                let mut weight_t = false;
-                ui.add_enabled(false, egui::Checkbox::new(&mut weight_t, "Poids t (à venir)"))
-                    .on_hover_text(
-                        "Hopping pondéré par la distance entre les points. Pas encore implémenté.",
-                    );
+                ui.checkbox(&mut self.export_weights, "Poids t (i, j, t)").on_hover_text(
+                    "Hopping t = exp(-beta * distance) par liaison, avec le beta du marcheur ivre.",
+                );
+                if self.export_weights {
+                    ui.label(format!("beta = {:.2}", self.beta));
+                }
 
                 ui.separator();
                 ui.horizontal(|ui| {
@@ -499,7 +500,7 @@ impl FractalEditor {
             );
             return;
         };
-        if !self.export_points && !self.export_lines {
+        if !self.export_points && !self.export_lines && !self.export_weights {
             shared::set_status_message(
                 &mut self.message,
                 shared::StatusMessage::error("Sélectionnez au moins un élément à exporter"),
@@ -514,8 +515,19 @@ impl FractalEditor {
             .unwrap_or("fractale")
             .to_string();
 
+        let beta = self.beta;
+        let use_weights = self.export_weights;
+        let want_edges = self.export_lines || self.export_weights;
+
         let points_csv = self.export_points.then(|| file_io::points_to_csv(&fractal.points));
-        let edges_csv = self.export_lines.then(|| file_io::edges_to_csv(&fractal.lines));
+        let edges_csv = want_edges.then(|| {
+            if use_weights {
+                let weights = file_io::edge_weights(&fractal.points, &fractal.lines, beta);
+                file_io::edges_to_csv_with_weights(&fractal.lines, &weights)
+            } else {
+                file_io::edges_to_csv(&fractal.lines)
+            }
+        });
         let point_count = fractal.points.len();
         let line_count = fractal.lines.len();
 
@@ -527,7 +539,11 @@ impl FractalEditor {
         }
         if let Some(csv) = edges_csv {
             if file_io::save_csv("Exporter les liaisons", &format!("{stem}_edges.csv"), &csv) {
-                exported.push(format!("{line_count} liaisons"));
+                if use_weights {
+                    exported.push(format!("{line_count} liaisons (t)"));
+                } else {
+                    exported.push(format!("{line_count} liaisons"));
+                }
             }
         }
 
