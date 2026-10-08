@@ -86,6 +86,10 @@ pub struct FractalEditor {
     pub selected_density_source: Option<usize>,
     dragging_density_source: Option<usize>,
 
+    pub export_show: bool,
+    pub export_points: bool,
+    pub export_lines: bool,
+
     message: Option<shared::StatusMessage>,
 
     left_panel_version: u32,
@@ -168,6 +172,9 @@ impl Default for FractalEditor {
             density_sources: Vec::new(),
             selected_density_source: None,
             dragging_density_source: None,
+            export_show: false,
+            export_points: true,
+            export_lines: true,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -447,6 +454,89 @@ impl FractalEditor {
             .show(ctx, |ui| {
                 self.render_player(ui);
             });
+
+        self.render_export_window(ctx);
+    }
+
+    fn render_export_window(&mut self, ctx: &egui::Context) {
+        if !self.export_show {
+            return;
+        }
+        egui::Window::new("Exporter (csv)")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Éléments à exporter :");
+                ui.checkbox(&mut self.export_points, "Points (x, y)");
+                ui.checkbox(&mut self.export_lines, "Liaisons (i, j)");
+
+                // Poids t : réservé pour la prise en compte de la distance entre points.
+                let mut weight_t = false;
+                ui.add_enabled(false, egui::Checkbox::new(&mut weight_t, "Poids t (à venir)"))
+                    .on_hover_text(
+                        "Hopping pondéré par la distance entre les points. Pas encore implémenté.",
+                    );
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Exporter").clicked() {
+                        self.export_show = false;
+                        self.export_csv();
+                    }
+                    if ui.button("Annuler").clicked() {
+                        self.export_show = false;
+                    }
+                });
+            });
+    }
+
+    fn export_csv(&mut self) {
+        let Some(fractal) = self.fractal.as_ref() else {
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::info("Aucune fractale à exporter"),
+            );
+            return;
+        };
+        if !self.export_points && !self.export_lines {
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::error("Sélectionnez au moins un élément à exporter"),
+            );
+            return;
+        }
+
+        let stem = self
+            .file_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("fractale")
+            .to_string();
+
+        let points_csv = self.export_points.then(|| file_io::points_to_csv(&fractal.points));
+        let edges_csv = self.export_lines.then(|| file_io::edges_to_csv(&fractal.lines));
+        let point_count = fractal.points.len();
+        let line_count = fractal.lines.len();
+
+        let mut exported: Vec<String> = Vec::new();
+        if let Some(csv) = points_csv {
+            if file_io::save_csv("Exporter les points", &format!("{stem}_points.csv"), &csv) {
+                exported.push(format!("{point_count} points"));
+            }
+        }
+        if let Some(csv) = edges_csv {
+            if file_io::save_csv("Exporter les liaisons", &format!("{stem}_edges.csv"), &csv) {
+                exported.push(format!("{line_count} liaisons"));
+            }
+        }
+
+        if !exported.is_empty() {
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::info(format!("Exporté : {}", exported.join(", "))),
+            );
+        }
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
@@ -534,20 +624,7 @@ impl FractalEditor {
                 }
                 ui.separator();
                 if ui.button("Exporter (csv)").clicked() {
-                    if let Some(ref fractal) = self.fractal {
-                        let mut csv = String::from("x,y\n");
-                        for pt in &fractal.points {
-                            csv.push_str(&format!("{},{}\n", pt.x, pt.y));
-                        }
-                        let name = self.file_path.as_deref().and_then(|p| {
-                            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
-                        }).unwrap_or("fractale");
-                        if file_io::save_csv("Exporter les points", &format!("{name}.csv"), &csv) {
-                            shared::set_status_message(&mut self.message, shared::StatusMessage::info(format!("{} points exportés", fractal.points.len())));
-                        }
-                    } else {
-                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Aucune fractale à exporter"));
-                    }
+                    self.export_show = true;
                     ui.close_menu();
                 }
             });

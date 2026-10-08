@@ -1,3 +1,5 @@
+use crate::types::Line;
+use eframe::egui::Pos2;
 use rfd::FileDialog;
 use std::path::PathBuf;
 
@@ -88,5 +90,43 @@ pub fn save_csv(title: &str, default_name: &str, data: &str) -> bool {
     match path {
         Some(p) => std::fs::write(&p, data).is_ok(),
         None => false,
+    }
+}
+
+/// Sérialise les points en CSV `x,y`. Les indices des lignes de ce fichier
+/// correspondent aux indices utilisés dans `edges_to_csv`.
+pub fn points_to_csv(points: &[Pos2]) -> String {
+    let mut csv = String::from("x,y\n");
+    for p in points {
+        csv.push_str(&format!("{},{}\n", p.x, p.y));
+    }
+    csv
+}
+
+/// Sérialise les liaisons en CSV `i,j` (indices des deux sommets reliés,
+/// dans l'ordre du fichier exporté par `points_to_csv`).
+pub fn edges_to_csv(lines: &[Line]) -> String {
+    let mut csv = String::from("i,j\n");
+    for &[a, b] in lines {
+        csv.push_str(&format!("{},{}\n", a, b));
+    }
+    csv
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::pos2;
+
+    #[test]
+    fn points_csv_format() {
+        let csv = points_to_csv(&[pos2(-20.0, 0.0), pos2(-10.0, 8.660254)]);
+        assert_eq!(csv, "x,y\n-20,0\n-10,8.660254\n");
+    }
+
+    #[test]
+    fn edges_csv_format() {
+        let csv = edges_to_csv(&[[0, 1], [1, 2]]);
+        assert_eq!(csv, "i,j\n0,1\n1,2\n");
     }
 }
