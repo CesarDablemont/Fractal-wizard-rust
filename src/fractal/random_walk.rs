@@ -2,6 +2,7 @@ use eframe::egui::Pos2;
 use rand::Rng;
 use rand::rngs::ThreadRng;
 use crate::fractal::generator::merge_vertices;
+use crate::fractal::hopping;
 use crate::types::{Line, RandomWalkInfo};
 
 const MAX_SIMULATION_TIME: f64 = 5.0;
@@ -22,7 +23,8 @@ pub struct SimulationRunner {
     start_index: usize,
     min_steps: u64,
     max_steps: u64,
-    beta: f32,
+    /// Poids de saut de chaque liaison, aligné sur `lines`.
+    weights: Vec<f32>,
     total_count: u32,
     done_count: u32,
     max_simulation_time: f64,
@@ -41,13 +43,14 @@ impl SimulationRunner {
     ) -> Self {
         let (canonical, lines) = merge_vertices(points, lines);
         let start_index = canonical[start_index];
+        let weights = hopping::edge_weights(points, &lines, beta);
         Self {
             points: points.to_vec(),
             lines,
             start_index,
             min_steps,
             max_steps,
-            beta,
+            weights,
             total_count: count,
             done_count: 0,
             max_simulation_time: 0.0,
@@ -75,7 +78,7 @@ impl SimulationRunner {
             self.start_index,
             self.min_steps,
             self.max_steps,
-            self.beta,
+            &self.weights,
             &mut self.rng,
         );
         self.max_simulation_time = self.max_simulation_time.max(start.elapsed().as_secs_f64());
@@ -90,17 +93,17 @@ fn run_with_min_steps(
     start: usize,
     min_steps: u64,
     max_steps: u64,
-    beta: f32,
+    weights: &[f32],
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
     let start_time = std::time::Instant::now();
-    let mut sim = run_single(points, lines, start, max_steps, beta, rng);
+    let mut sim = run_single(points, lines, start, max_steps, weights, rng);
     while min_steps > 0
         && sim.steps() < min_steps as usize
         && !sim.timed_out
         && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
     {
-        sim = run_single(points, lines, start, max_steps, beta, rng);
+        sim = run_single(points, lines, start, max_steps, weights, rng);
     }
     sim
 }
@@ -110,7 +113,7 @@ fn run_single(
     lines: &[Line],
     start: usize,
     max_steps: u64,
-    beta: f32,
+    weights: &[f32],
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
     let mut info = RandomWalkInfo::default();
@@ -121,36 +124,27 @@ fn run_single(
     while info.steps() < max_steps as usize
         && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
     {
-        let connected: Vec<usize> = lines
+        let connected: Vec<(usize, f32)> = lines
             .iter()
-            .filter(|l| l[0] == current || l[1] == current)
-            .map(|l| if l[0] == current { l[1] } else { l[0] })
+            .zip(weights)
+            .filter(|(l, _)| l[0] == current || l[1] == current)
+            .map(|(l, &w)| (if l[0] == current { l[1] } else { l[0] }, w))
             .collect();
 
         if connected.is_empty() {
             break;
         }
 
-        let next = if beta == 0.0 || connected.len() == 1 {
-            connected[rng.random_range(0..connected.len())]
+        let total: f32 = connected.iter().map(|&(_, w)| w).sum();
+        let next = if connected.len() == 1 || total <= 0.0 {
+            connected[rng.random_range(0..connected.len())].0
         } else {
-            let cur = points[current];
-            let weights: Vec<f32> = connected
-                .iter()
-                .map(|&idx| {
-                    let dx = points[idx].x - cur.x;
-                    let dy = points[idx].y - cur.y;
-                    let dist = (dx * dx + dy * dy).sqrt().max(0.001);
-                    (-beta * dist).exp()
-                })
-                .collect();
-            let total: f32 = weights.iter().sum();
             let mut r = rng.random::<f32>() * total;
-            let mut chosen = connected[0];
-            for (i, &w) in weights.iter().enumerate() {
+            let mut chosen = connected[connected.len() - 1].0;
+            for &(idx, w) in &connected {
                 r -= w;
                 if r <= 0.0 {
-                    chosen = connected[i];
+                    chosen = idx;
                     break;
                 }
             }
@@ -317,6 +311,17 @@ mod tests {
         for sim in &sims {
             assert!(sim.steps() >= min_steps as usize);
         }
+    }
+
+    #[test]
+    fn beta_favors_short_edges() {
+        // depuis 0 : liaison courte vers 1 (d = 1), longue vers 2 (d = 3) ;
+        // d0 = médiane(1, 3, 4) = 3 donc P(1) / P(2) = exp(beta * 2 / 3) = e^4
+        let points = vec![pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(-3.0, 0.0)];
+        let lines = vec![[0, 1], [0, 2], [1, 2]];
+        let (sims, _) = run_all(&points, &lines, 0, 200, 0, 2, 6.0);
+        let short = sims.iter().filter(|s| s.walk_steps[1] == 1).count();
+        assert!(short > 180, "{short} / 200");
     }
 
     #[test]

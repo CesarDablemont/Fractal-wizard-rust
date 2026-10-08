@@ -113,21 +113,6 @@ pub fn edges_to_csv(lines: &[Line]) -> String {
     csv
 }
 
-/// Poids de hopping `t` par liaison : `t = exp(-beta * d)` où `d` est la
-/// distance entre les deux sommets. Reprend exactement le poids de saut du
-/// marcheur ivre (`random_walk.rs`, `run_single`).
-pub fn edge_weights(points: &[Pos2], lines: &[Line], beta: f32) -> Vec<f32> {
-    lines
-        .iter()
-        .map(|&[a, b]| {
-            let dx = points[b].x - points[a].x;
-            let dy = points[b].y - points[a].y;
-            let dist = (dx * dx + dy * dy).sqrt().max(0.001);
-            (-beta * dist).exp()
-        })
-        .collect()
-}
-
 /// Sérialise les liaisons en CSV `i,j,t` avec le poids `t` de chaque liaison.
 pub fn edges_to_csv_with_weights(lines: &[Line], weights: &[f32]) -> String {
     let mut csv = String::from("i,j,t\n");
@@ -152,25 +137,6 @@ mod tests {
     fn edges_csv_format() {
         let csv = edges_to_csv(&[[0, 1], [1, 2]]);
         assert_eq!(csv, "i,j\n0,1\n1,2\n");
-    }
-
-    #[test]
-    fn edge_weights_match_walk_formula() {
-        // liaison 0<->1 de longueur 2 ; liaison 1<->2 de longueur 1
-        let points = [pos2(0.0, 0.0), pos2(2.0, 0.0), pos2(2.0, 1.0)];
-        let lines = [[0, 1], [1, 2]];
-        let beta = 0.5;
-        let w = edge_weights(&points, &lines, beta);
-        assert!((w[0] - (-beta * 2.0f32).exp()).abs() < 1e-6);
-        assert!((w[1] - (-beta * 1.0f32).exp()).abs() < 1e-6);
-    }
-
-    #[test]
-    fn edge_weights_zero_beta_is_one() {
-        let points = [pos2(0.0, 0.0), pos2(3.0, 4.0)];
-        let lines = [[0, 1]];
-        let w = edge_weights(&points, &lines, 0.0);
-        assert!((w[0] - 1.0).abs() < 1e-6);
     }
 
     #[test]

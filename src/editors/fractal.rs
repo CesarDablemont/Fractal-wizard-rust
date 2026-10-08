@@ -1,6 +1,7 @@
 use eframe::egui::{self, Align2, Color32, FontId, Id, pos2, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::fractal::generator::{self, FractalResult};
+use crate::fractal::hopping;
 use crate::fractal::random_walk::{self, RandomWalkStats, SimulationRunner};
 use crate::heatmap::{self, heatmap_color};
 use crate::scene::camera::Camera;
@@ -473,7 +474,7 @@ impl FractalEditor {
                 ui.checkbox(&mut self.export_points, "Points (x, y)");
                 ui.checkbox(&mut self.export_lines, "Liaisons (i, j)");
                 ui.checkbox(&mut self.export_weights, "Poids t (i, j, t)").on_hover_text(
-                    "Hopping t = exp(-beta * distance) par liaison, avec le beta du marcheur ivre.",
+                    "Hopping relatif t = exp(-beta * (d / d0 - 1)) par liaison, d0 = longueur médiane des liaisons, avec le beta du marcheur ivre.",
                 );
                 if self.export_weights {
                     ui.label(format!("beta = {:.2}", self.beta));
@@ -522,7 +523,7 @@ impl FractalEditor {
         let points_csv = self.export_points.then(|| file_io::points_to_csv(&fractal.points));
         let edges_csv = want_edges.then(|| {
             if use_weights {
-                let weights = file_io::edge_weights(&fractal.points, &fractal.lines, beta);
+                let weights = hopping::edge_weights(&fractal.points, &fractal.lines, beta);
                 file_io::edges_to_csv_with_weights(&fractal.lines, &weights)
             } else {
                 file_io::edges_to_csv(&fractal.lines)
