@@ -571,15 +571,13 @@ impl FractalEditor {
             ));
         }
         if self.export_lines {
-            let (csv, label) = if use_weights {
-                let weights = hopping::edge_weights(&graph.points, &graph.lines, beta);
-                (
-                    file_io::edges_to_csv_with_weights(&graph.lines, &weights),
-                    format!("{} liaisons (t, beta = {beta:.2})", graph.lines.len()),
-                )
+            let weights = use_weights.then(|| hopping::edge_weights(&graph.points, &graph.lines, beta));
+            let label = if use_weights {
+                format!("{} liaisons (t, beta = {beta:.2})", graph.lines.len())
             } else {
-                (file_io::edges_to_csv(&graph.lines), format!("{} liaisons", graph.lines.len()))
+                format!("{} liaisons", graph.lines.len())
             };
+            let csv = file_io::edges_to_csv(&graph.lines, weights.as_deref());
             files.push((file_io::csv_path(&base, "_edges"), csv, label));
         }
 

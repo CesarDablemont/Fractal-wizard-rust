@@ -117,20 +117,15 @@ pub fn points_to_csv(points: &[Pos2]) -> String {
 }
 
 /// Sérialise les liaisons en CSV `i,j` (indices des deux sommets reliés,
-/// dans l'ordre du fichier exporté par `points_to_csv`).
-pub fn edges_to_csv(lines: &[Line]) -> String {
-    let mut csv = String::from("i,j\n");
-    for &[a, b] in lines {
-        csv.push_str(&format!("{},{}\n", a, b));
-    }
-    csv
-}
-
-/// Sérialise les liaisons en CSV `i,j,t` avec le poids `t` de chaque liaison.
-pub fn edges_to_csv_with_weights(lines: &[Line], weights: &[f32]) -> String {
-    let mut csv = String::from("i,j,t\n");
-    for (&[a, b], &t) in lines.iter().zip(weights) {
-        csv.push_str(&format!("{},{},{}\n", a, b, t));
+/// dans l'ordre du fichier exporté par `points_to_csv`), ou `i,j,t` si un
+/// poids `t` est fourni pour chaque liaison.
+pub fn edges_to_csv(lines: &[Line], weights: Option<&[f32]>) -> String {
+    let mut csv = String::from(if weights.is_some() { "i,j,t\n" } else { "i,j\n" });
+    for (k, &[a, b]) in lines.iter().enumerate() {
+        match weights {
+            Some(w) => csv.push_str(&format!("{a},{b},{}\n", w[k])),
+            None => csv.push_str(&format!("{a},{b}\n")),
+        }
     }
     csv
 }
@@ -154,13 +149,13 @@ mod tests {
 
     #[test]
     fn edges_csv_format() {
-        let csv = edges_to_csv(&[[0, 1], [1, 2]]);
+        let csv = edges_to_csv(&[[0, 1], [1, 2]], None);
         assert_eq!(csv, "i,j\n0,1\n1,2\n");
     }
 
     #[test]
     fn edges_csv_with_weights_format() {
-        let csv = edges_to_csv_with_weights(&[[0, 1], [1, 2]], &[1.0, 0.5]);
+        let csv = edges_to_csv(&[[0, 1], [1, 2]], Some(&[1.0, 0.5]));
         assert_eq!(csv, "i,j,t\n0,1,1\n1,2,0.5\n");
     }
 }
