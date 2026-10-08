@@ -1,6 +1,7 @@
 use eframe::egui::{self, Align2, Color32, FontId, Id, pos2, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::fractal::generator::{self, FractalResult};
+use crate::fractal::hopping;
 use crate::fractal::random_walk::{self, RandomWalkStats, SimulationRunner};
 use crate::heatmap::{self, heatmap_color};
 use crate::scene::camera::Camera;
@@ -57,6 +58,8 @@ pub struct FractalEditor {
     pub allow_min: bool,
     pub allow_max: bool,
     pub beta: f32,
+    /// `beta` avec lequel les simulations affichées ont été lancées.
+    simulation_beta: Option<f32>,
     simulation_runner: Option<SimulationRunner>,
 
     pub global_heatmap: Vec<f32>,
@@ -85,6 +88,11 @@ pub struct FractalEditor {
     pub density_sources: Vec<DensitySource>,
     pub selected_density_source: Option<usize>,
     dragging_density_source: Option<usize>,
+
+    pub export_show: bool,
+    pub export_points: bool,
+    pub export_lines: bool,
+    pub export_weights: bool,
 
     message: Option<shared::StatusMessage>,
 
@@ -145,6 +153,7 @@ impl Default for FractalEditor {
             allow_min: true,
             allow_max: true,
             beta: 0.0,
+            simulation_beta: None,
             simulation_runner: None,
             global_heatmap: Vec::new(),
             individual_heatmap: Vec::new(),
@@ -168,6 +177,10 @@ impl Default for FractalEditor {
             density_sources: Vec::new(),
             selected_density_source: None,
             dragging_density_source: None,
+            export_show: false,
+            export_points: true,
+            export_lines: true,
+            export_weights: false,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -230,6 +243,7 @@ impl FractalEditor {
         self.canvas_renderer.chunk_grid = None;
         self.canvas_renderer.mesh_dirty = true;
         self.simulations.clear();
+        self.simulation_beta = None;
         self.selected_simulation = None;
         self.current_step = 0;
         self.is_playing = false;
@@ -324,6 +338,7 @@ impl FractalEditor {
         }
 
         self.simulations.clear();
+        self.simulation_beta = Some(self.beta);
         self.stats = None;
         self.selected_simulation = None;
         self.global_heatmap.clear();
@@ -447,6 +462,140 @@ impl FractalEditor {
             .show(ctx, |ui| {
                 self.render_player(ui);
             });
+
+        self.render_export_window(ctx);
+    }
+
+    fn render_export_window(&mut self, ctx: &egui::Context) {
+        if !self.export_show {
+            return;
+        }
+        egui::Window::new("Exporter (csv)")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Éléments à exporter :");
+                ui.checkbox(&mut self.export_points, "Points (x, y)");
+                ui.checkbox(&mut self.export_lines, "Liaisons (i, j)");
+                ui.add_enabled_ui(self.export_lines, |ui| {
+                    ui.indent("export_weights", |ui| {
+                        ui.checkbox(&mut self.export_weights, "avec poids t (i, j, t)").on_hover_text(
+                            "Hopping relatif t = exp(-beta * (d / d0 - 1)) par liaison, d0 = longueur médiane des liaisons, avec le beta du marcheur ivre.",
+                        );
+                    });
+                });
+                if self.export_lines && self.export_weights {
+                    self.render_export_beta(ui);
+                }
+
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Exporter").clicked() {
+                        self.export_show = false;
+                        self.export_csv();
+                    }
+                    if ui.button("Annuler").clicked() {
+                        self.export_show = false;
+                    }
+                });
+            });
+    }
+
+    /// `beta` utilisé pour les poids exportés : celui des simulations affichées
+    /// s'il y en a, sinon le réglage courant.
+    fn export_beta(&self) -> f32 {
+        self.simulation_beta.unwrap_or(self.beta)
+    }
+
+    fn render_export_beta(&self, ui: &mut egui::Ui) {
+        let beta = self.export_beta();
+        let warn = ui.visuals().warn_fg_color;
+        match self.simulation_beta {
+            Some(sim_beta) => {
+                ui.label(format!("beta = {sim_beta:.2} (simulations affichées)"));
+                if sim_beta != self.beta {
+                    ui.colored_label(
+                        warn,
+                        format!("Le réglage actuel ({:.2}) n'a pas été simulé", self.beta),
+                    );
+                }
+            }
+            None => {
+                ui.label(format!("beta = {beta:.2} (réglage Simulation)"));
+            }
+        }
+        if beta == 0.0 {
+            ui.colored_label(warn, "beta = 0 : tous les t valent 1 (liaisons uniformes)");
+        }
+    }
+
+    fn export_csv(&mut self) {
+        let Some(fractal) = self.fractal.as_ref() else {
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::info("Aucune fractale à exporter"),
+            );
+            return;
+        };
+        if !self.export_points && !self.export_lines {
+            shared::set_status_message(
+                &mut self.message,
+                shared::StatusMessage::error("Sélectionnez au moins un élément à exporter"),
+            );
+            return;
+        }
+
+        let stem = self
+            .file_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("fractale")
+            .to_string();
+
+        let Some(base) = file_io::pick_csv_base("Exporter (csv)", &stem) else {
+            return;
+        };
+
+        let beta = self.export_beta();
+        let use_weights = self.export_lines && self.export_weights;
+
+        // Même graphe que celui parcouru par le marcheur ivre.
+        let graph = generator::merge_graph(&fractal.points, &fractal.lines);
+        let mut files: Vec<(std::path::PathBuf, String, String)> = Vec::new();
+        if self.export_points {
+            files.push((
+                file_io::csv_path(&base, "_points"),
+                file_io::points_to_csv(&graph.points),
+                format!("{} points", graph.points.len()),
+            ));
+        }
+        if self.export_lines {
+            let weights = use_weights.then(|| hopping::edge_weights(&graph.points, &graph.lines, beta));
+            let label = if use_weights {
+                format!("{} liaisons (t, beta = {beta:.2})", graph.lines.len())
+            } else {
+                format!("{} liaisons", graph.lines.len())
+            };
+            let csv = file_io::edges_to_csv(&graph.lines, weights.as_deref());
+            files.push((file_io::csv_path(&base, "_edges"), csv, label));
+        }
+
+        let mut exported: Vec<String> = Vec::new();
+        for (path, csv, label) in files {
+            if let Err(err) = std::fs::write(&path, csv) {
+                shared::set_status_message(
+                    &mut self.message,
+                    shared::StatusMessage::error(format!("Échec de l'écriture de {} : {err}", path.display())),
+                );
+                return;
+            }
+            exported.push(label);
+        }
+        shared::set_status_message(
+            &mut self.message,
+            shared::StatusMessage::info(format!("Exporté : {}", exported.join(", "))),
+        );
     }
 
     fn render_menu(&mut self, ui: &mut egui::Ui) {
@@ -534,20 +683,7 @@ impl FractalEditor {
                 }
                 ui.separator();
                 if ui.button("Exporter (csv)").clicked() {
-                    if let Some(ref fractal) = self.fractal {
-                        let mut csv = String::from("x,y\n");
-                        for pt in &fractal.points {
-                            csv.push_str(&format!("{},{}\n", pt.x, pt.y));
-                        }
-                        let name = self.file_path.as_deref().and_then(|p| {
-                            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
-                        }).unwrap_or("fractale");
-                        if file_io::save_csv("Exporter les points", &format!("{name}.csv"), &csv) {
-                            shared::set_status_message(&mut self.message, shared::StatusMessage::info(format!("{} points exportés", fractal.points.len())));
-                        }
-                    } else {
-                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Aucune fractale à exporter"));
-                    }
+                    self.export_show = true;
                     ui.close_menu();
                 }
             });
@@ -671,6 +807,7 @@ impl FractalEditor {
                     if ui.button("Reset").clicked() {
                         self.fractal = None;
                         self.simulations.clear();
+                        self.simulation_beta = None;
                         self.stats = None;
                         self.global_heatmap.clear();
                         self.individual_heatmap.clear();
@@ -864,16 +1001,12 @@ impl FractalEditor {
             }
 
             if response.clicked_by(egui::PointerButton::Primary) && self.state == EditorState::SelectPointSimulation {
-                if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                    let world = self.camera.screen_to_world(mouse, canvas_center);
-                    let half = self.camera.point_size / 2.0;
-                    for (i, &p) in points.iter().enumerate() {
-                        if (p.x - world.x).abs() <= half && (p.y - world.y).abs() <= half {
-                            self.start_simulation(i);
-                            self.state = EditorState::Mouse;
-                            break;
-                        }
-                    }
+                let picked = ui.input(|i| i.pointer.interact_pos()).and_then(|mouse| {
+                    canvas::pick_fractal_point(&self.camera, points, point_scale, mouse, canvas_center)
+                });
+                if let Some(i) = picked {
+                    self.start_simulation(i);
+                    self.state = EditorState::Mouse;
                 }
             }
         }
