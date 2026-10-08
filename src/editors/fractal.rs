@@ -520,17 +520,19 @@ impl FractalEditor {
         let use_weights = self.export_weights;
         let want_edges = self.export_lines || self.export_weights;
 
-        let points_csv = self.export_points.then(|| file_io::points_to_csv(&fractal.points));
+        // Même graphe que celui parcouru par le marcheur ivre.
+        let graph = generator::merge_graph(&fractal.points, &fractal.lines);
+        let points_csv = self.export_points.then(|| file_io::points_to_csv(&graph.points));
         let edges_csv = want_edges.then(|| {
             if use_weights {
-                let weights = hopping::edge_weights(&fractal.points, &fractal.lines, beta);
-                file_io::edges_to_csv_with_weights(&fractal.lines, &weights)
+                let weights = hopping::edge_weights(&graph.points, &graph.lines, beta);
+                file_io::edges_to_csv_with_weights(&graph.lines, &weights)
             } else {
-                file_io::edges_to_csv(&fractal.lines)
+                file_io::edges_to_csv(&graph.lines)
             }
         });
-        let point_count = fractal.points.len();
-        let line_count = fractal.lines.len();
+        let point_count = graph.points.len();
+        let line_count = graph.lines.len();
 
         let mut exported: Vec<String> = Vec::new();
         if let Some(csv) = points_csv {

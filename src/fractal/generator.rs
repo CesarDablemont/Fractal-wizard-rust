@@ -223,24 +223,14 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
     }
 
     if *regroup {
-        let (canonical, merged_lines) = merge_vertices(&final_points, &final_lines);
-        let mut remap: Vec<usize> = vec![usize::MAX; final_points.len()];
-        let mut compacted_points: Vec<Pos2> = Vec::new();
-        let mut compacted_scales: Vec<f32> = Vec::new();
-        for i in 0..final_points.len() {
-            let rep = canonical[i];
-            if remap[rep] == usize::MAX {
-                remap[rep] = compacted_points.len();
-                compacted_points.push(final_points[rep]);
-                compacted_scales.push(final_point_scale[rep]);
-            }
-            if final_point_scale[i] > compacted_scales[remap[rep]] {
-                compacted_scales[remap[rep]] = final_point_scale[i];
-            }
+        let graph = merge_graph(&final_points, &final_lines);
+        let mut compacted_scales = vec![f32::NEG_INFINITY; graph.points.len()];
+        for (&scale, &c) in final_point_scale.iter().zip(&graph.remap) {
+            compacted_scales[c] = compacted_scales[c].max(scale);
         }
-        final_points = compacted_points;
+        final_points = graph.points;
         final_point_scale = compacted_scales;
-        final_lines = merged_lines.iter().map(|l| [remap[l[0]], remap[l[1]]]).collect();
+        final_lines = graph.lines;
     }
 
     let dimension = if !pattern.is_empty() && pattern[0].scale > 1.0 {
@@ -351,6 +341,9 @@ fn find_or_add_point(
     idx
 }
 
+/// Fusionne les sommets confondus (à une tolérance près) et renvoie, pour chaque
+/// sommet, l'indice de son représentant, ainsi que les liaisons réindexées.
+/// Les liaisons sont orientées `[min, max]`, sans boucle ni doublon.
 pub(crate) fn merge_vertices(points: &[Pos2], lines: &[Line]) -> (Vec<usize>, Vec<Line>) {
     let mut max_coord = 0.0f32;
     for p in points {
@@ -387,12 +380,42 @@ pub(crate) fn merge_vertices(points: &[Pos2], lines: &[Line]) -> (Vec<usize>, Ve
         }
     }
 
-    let lines: Vec<Line> = lines
+    let mut lines: Vec<Line> = lines
         .iter()
-        .map(|l| [canonical[l[0]], canonical[l[1]]])
+        .map(|l| {
+            let (a, b) = (canonical[l[0]], canonical[l[1]]);
+            [a.min(b), a.max(b)]
+        })
         .filter(|l| l[0] != l[1])
         .collect();
+    lines.sort_unstable();
+    lines.dedup();
     (canonical, lines)
+}
+
+/// Graphe issu de `merge_graph` : sommets fusionnés et indices contigus.
+pub struct MergedGraph {
+    /// Indice compact de chaque sommet d'origine.
+    pub remap: Vec<usize>,
+    pub points: Vec<Pos2>,
+    pub lines: Vec<Line>,
+}
+
+/// Fusionne les sommets confondus (voir `merge_vertices`) puis renumérote les
+/// représentants de façon contiguë. C'est le graphe parcouru par le marcheur ivre.
+pub fn merge_graph(points: &[Pos2], lines: &[Line]) -> MergedGraph {
+    let (canonical, merged_lines) = merge_vertices(points, lines);
+    let mut remap = vec![usize::MAX; points.len()];
+    let mut compacted: Vec<Pos2> = Vec::new();
+    for (i, &rep) in canonical.iter().enumerate() {
+        if remap[rep] == usize::MAX {
+            remap[rep] = compacted.len();
+            compacted.push(points[rep]);
+        }
+        remap[i] = remap[rep];
+    }
+    let lines = merged_lines.iter().map(|l| [remap[l[0]], remap[l[1]]]).collect();
+    MergedGraph { remap, points: compacted, lines }
 }
 
 fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
@@ -419,6 +442,28 @@ fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
 mod tests {
     use super::*;
     use eframe::egui::vec2;
+
+    #[test]
+    fn merge_vertices_removes_duplicate_edges() {
+        let points = [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0)];
+        let lines = [[0, 1], [1, 0], [0, 1], [1, 2], [2, 2]];
+        let (_, lines) = merge_vertices(&points, &lines);
+        assert_eq!(lines, vec![[0, 1], [1, 2]]);
+    }
+
+    #[test]
+    fn merge_graph_compacts_coincident_points() {
+        // deux triangles qui partagent l'arête (1, 2), dupliquée en (3, 4)
+        let points = [
+            pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(0.5, 1.0),
+            pos2(1.0, 0.0), pos2(0.5, 1.0), pos2(1.5, 1.0),
+        ];
+        let lines = [[0, 1], [1, 2], [2, 0], [3, 4], [4, 5], [5, 3]];
+        let graph = merge_graph(&points, &lines);
+        assert_eq!(graph.points.len(), 4);
+        assert_eq!(graph.remap, vec![0, 1, 2, 1, 2, 3]);
+        assert_eq!(graph.lines, vec![[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]]);
+    }
 
     #[test]
     fn sierpinski_dimension() {
