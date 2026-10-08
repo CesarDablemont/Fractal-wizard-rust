@@ -4,6 +4,32 @@ use eframe::egui::epaint::{Mesh, Vertex};
 use crate::scene::camera::Camera;
 use crate::scene::chunk_grid::ChunkGrid;
 
+/// Échelle en dessous de laquelle un point de la fractale n'est pas dessiné.
+fn min_visible_scale(camera: &Camera) -> f32 {
+    0.5 / camera.zoom
+}
+
+/// Indice du point affiché le plus proche de `mouse` (coordonnées écran), si le
+/// clic tombe dans son carré. Les points masqués au zoom courant sont ignorés.
+pub fn pick_fractal_point(
+    camera: &Camera,
+    points: &[Pos2],
+    point_scale: &[f32],
+    mouse: Pos2,
+    canvas_center: Pos2,
+) -> Option<usize> {
+    let half = camera.point_size / 2.0;
+    let min_scale = min_visible_scale(camera);
+    points
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| point_scale.get(i).is_none_or(|&s| s >= min_scale))
+        .map(|(i, &p)| (i, camera.world_to_screen(p, canvas_center) - mouse))
+        .filter(|(_, d)| d.x.abs() <= half && d.y.abs() <= half)
+        .min_by(|a, b| a.1.length_sq().total_cmp(&b.1.length_sq()))
+        .map(|(i, _)| i)
+}
+
 pub struct FractalDrawData<'a> {
     pub points: &'a [Pos2],
     pub point_scale: &'a [f32],
@@ -204,7 +230,7 @@ impl CanvasRenderer {
             return;
         }
 
-        let min_scale = 0.5 / camera.zoom;
+        let min_scale = min_visible_scale(camera);
 
         let mut mesh = Mesh::default();
 
@@ -246,5 +272,38 @@ impl CanvasRenderer {
                 shapes.push(Shape::rect_stroke(rect, 0.0, Stroke::new(stroke_width, Color32::BLACK), eframe::egui::StrokeKind::Outside));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pick_returns_nearest_point_not_first() {
+        // zoom 10 : les points 0 et 1 sont à 2 px l'un de l'autre, le clic est sur le 1
+        let camera = Camera::default();
+        let center = pos2(0.0, 0.0);
+        let points = [pos2(0.0, 0.0), pos2(0.2, 0.0)];
+        let mouse = camera.world_to_screen(points[1], center);
+        assert_eq!(pick_fractal_point(&camera, &points, &[], mouse, center), Some(1));
+    }
+
+    #[test]
+    fn pick_uses_screen_size() {
+        // point à 1 unité monde = 10 px à zoom 10, hors du carré de 6 px
+        let camera = Camera::default();
+        let center = pos2(0.0, 0.0);
+        let points = [pos2(1.0, 0.0)];
+        assert_eq!(pick_fractal_point(&camera, &points, &[], center, center), None);
+    }
+
+    #[test]
+    fn pick_ignores_hidden_points() {
+        let camera = Camera::default();
+        let center = pos2(0.0, 0.0);
+        let points = [pos2(0.0, 0.0)];
+        let scales = [min_visible_scale(&camera) / 2.0];
+        assert_eq!(pick_fractal_point(&camera, &points, &scales, center, center), None);
     }
 }

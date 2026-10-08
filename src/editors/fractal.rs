@@ -1003,16 +1003,12 @@ impl FractalEditor {
             }
 
             if response.clicked_by(egui::PointerButton::Primary) && self.state == EditorState::SelectPointSimulation {
-                if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                    let world = self.camera.screen_to_world(mouse, canvas_center);
-                    let half = self.camera.point_size / 2.0;
-                    for (i, &p) in points.iter().enumerate() {
-                        if (p.x - world.x).abs() <= half && (p.y - world.y).abs() <= half {
-                            self.start_simulation(i);
-                            self.state = EditorState::Mouse;
-                            break;
-                        }
-                    }
+                let picked = ui.input(|i| i.pointer.interact_pos()).and_then(|mouse| {
+                    canvas::pick_fractal_point(&self.camera, points, point_scale, mouse, canvas_center)
+                });
+                if let Some(i) = picked {
+                    self.start_simulation(i);
+                    self.state = EditorState::Mouse;
                 }
             }
         }
