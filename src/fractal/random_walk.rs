@@ -3,6 +3,7 @@ use rand::Rng;
 use rand::rngs::ThreadRng;
 use crate::fractal::generator::merge_vertices;
 use crate::fractal::hopping;
+use crate::heatmap;
 use crate::types::{Line, RandomWalkInfo};
 
 const MAX_SIMULATION_TIME: f64 = 5.0;
@@ -41,6 +42,9 @@ pub struct SimulationRunner {
     total_count: u32,
     done_count: u32,
     max_simulation_time: f64,
+    /// Passages cumulés par point sur toutes les simulations déjà faites :
+    /// chaque nouvelle marche y est ajoutée sans relire les précédentes.
+    visits: Vec<u32>,
     /// Instant du lancement, pour le temps réel écoulé jusqu'à la fin.
     started_at: std::time::Instant,
     rng: ThreadRng,
@@ -68,6 +72,7 @@ impl SimulationRunner {
             total_count: count,
             done_count: 0,
             max_simulation_time: 0.0,
+            visits: vec![0; points.len()],
             started_at: std::time::Instant::now(),
             rng: rand::rng(),
         }
@@ -83,6 +88,10 @@ impl SimulationRunner {
 
     pub fn max_simulation_time(&self) -> f64 {
         self.max_simulation_time
+    }
+
+    pub fn visits(&self) -> &[u32] {
+        &self.visits
     }
 
     /// Temps réel écoulé depuis le lancement, rendu et heatmaps compris.
@@ -101,6 +110,7 @@ impl SimulationRunner {
             &mut self.rng,
         );
         self.max_simulation_time = self.max_simulation_time.max(start.elapsed().as_secs_f64());
+        heatmap::add_visits(&mut self.visits, &sim);
         self.done_count += 1;
         sim
     }
