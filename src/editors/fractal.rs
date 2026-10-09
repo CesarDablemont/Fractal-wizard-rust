@@ -392,9 +392,11 @@ impl FractalEditor {
 
         if runner.is_done() {
             let max_time = runner.max_simulation_time();
+            let total_time = runner.total_simulation_time();
             self.simulation_runner = None;
             if let Some(stats) = &mut self.stats {
                 stats.max_simulation_time = max_time;
+                stats.total_simulation_time = total_time;
             }
         }
     }
@@ -1129,6 +1131,9 @@ impl FractalEditor {
             ui.label(format!("Distance moyenne: {:.2}", stats.average_length));
             if stats.max_simulation_time > 0.0 {
                 ui.label(format!("Temps max simulation: {:.2}s", stats.max_simulation_time));
+            }
+            if stats.total_simulation_time > 0.0 {
+                ui.label(format!("Temps total simulations: {:.2}s", stats.total_simulation_time));
             }
         }
     }
