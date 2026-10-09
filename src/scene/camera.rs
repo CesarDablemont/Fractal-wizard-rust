@@ -1,4 +1,5 @@
 use eframe::egui::{Pos2, Rect, Vec2};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug)]
 pub struct Camera {
@@ -31,7 +32,48 @@ impl Default for Camera {
     }
 }
 
+/// Réglages d'affichage de la caméra, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CameraSettings {
+    pub grid_spacing: f32,
+    pub display_grid: bool,
+    pub magnetism: bool,
+    pub display_points: bool,
+    pub display_lines: bool,
+    pub point_size: f32,
+    pub display_origin: bool,
+}
+
+impl Default for CameraSettings {
+    fn default() -> Self {
+        Camera::default().settings()
+    }
+}
+
 impl Camera {
+    pub fn settings(&self) -> CameraSettings {
+        CameraSettings {
+            grid_spacing: self.grid_spacing,
+            display_grid: self.display_grid,
+            magnetism: self.magnetism,
+            display_points: self.display_points,
+            display_lines: self.display_lines,
+            point_size: self.point_size,
+            display_origin: self.display_origin,
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &CameraSettings) {
+        self.grid_spacing = settings.grid_spacing;
+        self.display_grid = settings.display_grid;
+        self.magnetism = settings.magnetism;
+        self.display_points = settings.display_points;
+        self.display_lines = settings.display_lines;
+        self.point_size = settings.point_size;
+        self.display_origin = settings.display_origin;
+    }
+
     pub fn screen_to_world(&self, screen: Pos2, canvas_center: Pos2) -> Pos2 {
         let delta = screen - canvas_center;
         let world_delta = delta / self.zoom;

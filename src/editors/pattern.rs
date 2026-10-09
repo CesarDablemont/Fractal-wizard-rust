@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
-use crate::scene::camera::Camera;
+use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::CanvasRenderer;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
@@ -45,6 +45,21 @@ pub struct PatternEditor {
     property_dragging: bool,
 }
 
+/// Réglages du menu `Options`, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PatternSettings {
+    pub show_origin_figure: bool,
+    pub show_gizmo: bool,
+    pub camera: CameraSettings,
+}
+
+impl Default for PatternSettings {
+    fn default() -> Self {
+        PatternEditor::default().settings()
+    }
+}
+
 impl Default for PatternEditor {
     fn default() -> Self {
         let (mp, ml) = shared::default_model();
@@ -72,6 +87,20 @@ impl Default for PatternEditor {
 }
 
 impl PatternEditor {
+    pub fn settings(&self) -> PatternSettings {
+        PatternSettings {
+            show_origin_figure: self.show_origin_figure,
+            show_gizmo: self.show_gizmo,
+            camera: self.camera.settings(),
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &PatternSettings) {
+        self.show_origin_figure = settings.show_origin_figure;
+        self.show_gizmo = settings.show_gizmo;
+        self.camera.apply_settings(&settings.camera);
+    }
+
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
             self.model_points = pts;

@@ -1,9 +1,22 @@
 use eframe::egui;
-use crate::editors::figure::FigureEditor;
-use crate::editors::pattern::PatternEditor;
-use crate::editors::initial::InitialEditor;
-use crate::editors::fractal::FractalEditor;
+use crate::editors::figure::{FigureEditor, FigureSettings};
+use crate::editors::pattern::{PatternEditor, PatternSettings};
+use crate::editors::initial::{InitialEditor, InitialSettings};
+use crate::editors::fractal::{FractalEditor, FractalSettings};
+use crate::file_io::{self, RecentDirs};
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
+
+/// Réglages mémorisés entre deux lancements (persistance eframe).
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct AppSettings {
+    figure: FigureSettings,
+    pattern: PatternSettings,
+    initial: InitialSettings,
+    fractal: FractalSettings,
+    recent_dirs: RecentDirs,
+}
 
 #[derive(PartialEq)]
 enum ActiveEditor {
@@ -37,7 +50,35 @@ impl Default for FractalWizardApp {
     }
 }
 
+impl FractalWizardApp {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let mut app = Self::default();
+        if let Some(settings) = cc
+            .storage
+            .and_then(|storage| eframe::get_value::<AppSettings>(storage, eframe::APP_KEY))
+        {
+            app.figure_editor.apply_settings(&settings.figure);
+            app.pattern_editor.apply_settings(&settings.pattern);
+            app.initial_editor.apply_settings(&settings.initial);
+            app.fractal_editor.apply_settings(&settings.fractal);
+            file_io::set_recent_dirs(settings.recent_dirs);
+        }
+        app
+    }
+}
+
 impl eframe::App for FractalWizardApp {
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        let settings = AppSettings {
+            figure: self.figure_editor.settings(),
+            pattern: self.pattern_editor.settings(),
+            initial: self.initial_editor.settings(),
+            fractal: self.fractal_editor.settings(),
+            recent_dirs: file_io::recent_dirs(),
+        };
+        eframe::set_value(storage, eframe::APP_KEY, &settings);
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.set_pixels_per_point(1.5);
 

@@ -24,6 +24,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "FractalWizard",
         options,
-        Box::new(|_cc| Ok(Box::new(app::FractalWizardApp::default()))),
+        Box::new(|cc| Ok(Box::new(app::FractalWizardApp::new(cc)))),
     )
 }

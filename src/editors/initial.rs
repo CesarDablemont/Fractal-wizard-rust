@@ -1,5 +1,6 @@
 use eframe::egui::{self, pos2, Color32, Pos2, Shape, Vec2};
-use crate::scene::camera::Camera;
+use serde::{Deserialize, Serialize};
+use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::CanvasRenderer;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
@@ -34,6 +35,20 @@ pub struct InitialEditor {
     property_dragging: bool,
 }
 
+/// Réglages du menu `Options`, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct InitialSettings {
+    pub show_gizmo: bool,
+    pub camera: CameraSettings,
+}
+
+impl Default for InitialSettings {
+    fn default() -> Self {
+        InitialEditor::default().settings()
+    }
+}
+
 impl Default for InitialEditor {
     fn default() -> Self {
         let (mp, ml) = shared::default_model();
@@ -58,6 +73,18 @@ impl Default for InitialEditor {
 }
 
 impl InitialEditor {
+    pub fn settings(&self) -> InitialSettings {
+        InitialSettings {
+            show_gizmo: self.show_gizmo,
+            camera: self.camera.settings(),
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &InitialSettings) {
+        self.show_gizmo = settings.show_gizmo;
+        self.camera.apply_settings(&settings.camera);
+    }
+
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
             self.push_undo();

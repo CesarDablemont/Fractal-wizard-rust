@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
-use crate::scene::camera::Camera;
+use serde::{Deserialize, Serialize};
+use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::CanvasRenderer;
 use crate::shapes::polygon::Polygon;
 use crate::shapes::free_linear::FreeLinearShape;
@@ -106,6 +107,20 @@ impl FigureShape {
     }
 }
 
+/// Réglages du menu `Options`, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FigureSettings {
+    pub show_gizmo: bool,
+    pub camera: CameraSettings,
+}
+
+impl Default for FigureSettings {
+    fn default() -> Self {
+        FigureEditor::default().settings()
+    }
+}
+
 impl Default for FigureEditor {
     fn default() -> Self {
         Self {
@@ -130,6 +145,18 @@ impl Default for FigureEditor {
 }
 
 impl FigureEditor {
+    pub fn settings(&self) -> FigureSettings {
+        FigureSettings {
+            show_gizmo: self.show_gizmo,
+            camera: self.camera.settings(),
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &FigureSettings) {
+        self.show_gizmo = settings.show_gizmo;
+        self.camera.apply_settings(&settings.camera);
+    }
+
     pub fn render(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("figure_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
