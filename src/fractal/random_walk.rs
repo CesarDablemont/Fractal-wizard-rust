@@ -3,6 +3,7 @@ use rand::Rng;
 use rand::rngs::ThreadRng;
 use crate::fractal::generator::merge_vertices;
 use crate::fractal::hopping;
+use crate::heatmap;
 use crate::types::{Line, RandomWalkInfo};
 
 const MAX_SIMULATION_TIME: f64 = 5.0;
@@ -15,19 +16,37 @@ pub struct RandomWalkStats {
     pub std_dev_steps: f32,
     pub average_length: f32,
     pub max_simulation_time: f64,
+    pub total_simulation_time: f64,
+}
+
+/// Voisins de chaque sommet avec le poids de la liaison qui y mène.
+type Adjacency = Vec<Vec<(usize, f32)>>;
+
+/// Construit la liste d'adjacence une fois pour toutes : le graphe ne change
+/// pas pendant les simulations, chaque pas n'a plus qu'à lire `adjacency[current]`.
+fn build_adjacency(points_count: usize, lines: &[Line], weights: &[f32]) -> Adjacency {
+    let mut adjacency: Adjacency = vec![Vec::new(); points_count];
+    for (&[a, b], &w) in lines.iter().zip(weights) {
+        adjacency[a].push((b, w));
+        adjacency[b].push((a, w));
+    }
+    adjacency
 }
 
 pub struct SimulationRunner {
     points: Vec<Pos2>,
-    lines: Vec<Line>,
+    adjacency: Adjacency,
     start_index: usize,
     min_steps: u64,
     max_steps: u64,
-    /// Poids de saut de chaque liaison, aligné sur `lines`.
-    weights: Vec<f32>,
     total_count: u32,
     done_count: u32,
     max_simulation_time: f64,
+    /// Passages cumulés par point sur toutes les simulations déjà faites :
+    /// chaque nouvelle marche y est ajoutée sans relire les précédentes.
+    visits: Vec<u32>,
+    /// Instant du lancement, pour le temps réel écoulé jusqu'à la fin.
+    started_at: std::time::Instant,
     rng: ThreadRng,
 }
 
@@ -46,14 +65,15 @@ impl SimulationRunner {
         let weights = hopping::edge_weights(points, &lines, beta);
         Self {
             points: points.to_vec(),
-            lines,
+            adjacency: build_adjacency(points.len(), &lines, &weights),
             start_index,
             min_steps,
             max_steps,
-            weights,
             total_count: count,
             done_count: 0,
             max_simulation_time: 0.0,
+            visits: vec![0; points.len()],
+            started_at: std::time::Instant::now(),
             rng: rand::rng(),
         }
     }
@@ -70,18 +90,27 @@ impl SimulationRunner {
         self.max_simulation_time
     }
 
+    pub fn visits(&self) -> &[u32] {
+        &self.visits
+    }
+
+    /// Temps réel écoulé depuis le lancement, rendu et heatmaps compris.
+    pub fn total_simulation_time(&self) -> f64 {
+        self.started_at.elapsed().as_secs_f64()
+    }
+
     pub fn run_next(&mut self) -> RandomWalkInfo {
         let start = std::time::Instant::now();
         let sim = run_with_min_steps(
             &self.points,
-            &self.lines,
+            &self.adjacency,
             self.start_index,
             self.min_steps,
             self.max_steps,
-            &self.weights,
             &mut self.rng,
         );
         self.max_simulation_time = self.max_simulation_time.max(start.elapsed().as_secs_f64());
+        heatmap::add_visits(&mut self.visits, &sim);
         self.done_count += 1;
         sim
     }
@@ -89,31 +118,29 @@ impl SimulationRunner {
 
 fn run_with_min_steps(
     points: &[Pos2],
-    lines: &[Line],
+    adjacency: &[Vec<(usize, f32)>],
     start: usize,
     min_steps: u64,
     max_steps: u64,
-    weights: &[f32],
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
     let start_time = std::time::Instant::now();
-    let mut sim = run_single(points, lines, start, max_steps, weights, rng);
+    let mut sim = run_single(points, adjacency, start, max_steps, rng);
     while min_steps > 0
         && sim.steps() < min_steps as usize
         && !sim.timed_out
         && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
     {
-        sim = run_single(points, lines, start, max_steps, weights, rng);
+        sim = run_single(points, adjacency, start, max_steps, rng);
     }
     sim
 }
 
 fn run_single(
     points: &[Pos2],
-    lines: &[Line],
+    adjacency: &[Vec<(usize, f32)>],
     start: usize,
     max_steps: u64,
-    weights: &[f32],
     rng: &mut impl Rng,
 ) -> RandomWalkInfo {
     let mut info = RandomWalkInfo::default();
@@ -124,12 +151,7 @@ fn run_single(
     while info.steps() < max_steps as usize
         && start_time.elapsed().as_secs_f64() <= MAX_SIMULATION_TIME
     {
-        let connected: Vec<(usize, f32)> = lines
-            .iter()
-            .zip(weights)
-            .filter(|(l, _)| l[0] == current || l[1] == current)
-            .map(|(l, &w)| (if l[0] == current { l[1] } else { l[0] }, w))
-            .collect();
+        let connected = &adjacency[current];
 
         if connected.is_empty() {
             break;
@@ -141,7 +163,7 @@ fn run_single(
         } else {
             let mut r = rng.random::<f32>() * total;
             let mut chosen = connected[connected.len() - 1].0;
-            for &(idx, w) in &connected {
+            for &(idx, w) in connected {
                 r -= w;
                 if r <= 0.0 {
                     chosen = idx;
@@ -191,6 +213,7 @@ pub fn calculate_stats(
             std_dev_steps: 0.0,
             average_length: 0.0,
             max_simulation_time: 0.0,
+            total_simulation_time: 0.0,
         };
     }
 
@@ -216,6 +239,7 @@ pub fn calculate_stats(
         std_dev_steps: std_dev,
         average_length: avg_length,
         max_simulation_time: 0.0,
+        total_simulation_time: 0.0,
     }
 }
 
@@ -240,7 +264,20 @@ mod tests {
         }
         let mut stats = calculate_stats(&sims, count);
         stats.max_simulation_time = runner.max_simulation_time();
+        stats.total_simulation_time = runner.total_simulation_time();
         (sims, stats)
+    }
+
+    #[test]
+    fn adjacency_is_symmetric_with_weights() {
+        let lines = [[0, 1], [1, 2]];
+        let adjacency = build_adjacency(4, &lines, &[0.5, 2.0]);
+        assert_eq!(adjacency, vec![
+            vec![(1, 0.5)],
+            vec![(0, 0.5), (2, 2.0)],
+            vec![(1, 2.0)],
+            vec![],
+        ]);
     }
 
     #[test]

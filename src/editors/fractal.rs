@@ -14,6 +14,10 @@ use crate::types::{DensityMode, DensitySource, EditorState, Line, RandomWalkInfo
 use crate::file_io;
 use super::shared;
 
+/// Temps de calcul accordé aux simulations à chaque frame : assez pour avancer
+/// vite, assez court pour que l'interface reste fluide (~60 fps).
+const SIMULATION_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
+
 #[derive(Serialize, Deserialize)]
 struct FractalFile {
     shape: Option<shared::ModelData>,
@@ -358,6 +362,8 @@ impl FractalEditor {
         self.simulation_runner.is_some()
     }
 
+    /// Exécute autant de simulations que possible dans le budget d'une frame,
+    /// puis met à jour statistiques et heatmap une seule fois pour tout le lot.
     fn advance_simulation(&mut self) {
         let points_count = self.fractal_points().len();
         let runner = match &mut self.simulation_runner {
@@ -369,32 +375,36 @@ impl FractalEditor {
             return;
         }
 
-        let sim = runner.run_next();
-        let timed_out = sim.timed_out;
-        let steps = sim.steps();
-        self.simulations.push(sim);
+        let frame_start = std::time::Instant::now();
+        while !runner.is_done() && frame_start.elapsed() < SIMULATION_FRAME_BUDGET {
+            let sim = runner.run_next();
+            if sim.timed_out {
+                let n = self.simulations.len() + 1;
+                let steps = sim.steps();
+                shared::set_status_message(
+                    &mut self.message,
+                    shared::StatusMessage::error(format!(
+                        "Simulation lente : la simulation {n} a dépassé la limite d'1s ({steps} étapes, marquée Pas fini)"
+                    )),
+                );
+            }
+            self.simulations.push(sim);
+        }
+
         self.stats = Some(random_walk::calculate_stats(&self.simulations, self.simulation_count));
-        self.global_heatmap = heatmap::calculate_global_heatmap(points_count, &self.simulations);
+        self.global_heatmap = heatmap::normalize(runner.visits());
         if self.selected_simulation.is_none() {
             self.selected_simulation = Some(0);
             self.individual_heatmap = heatmap::calculate_individual_heatmap(points_count, &self.simulations[0]);
         }
 
-        if timed_out {
-            let n = self.simulations.len();
-            shared::set_status_message(
-                &mut self.message,
-                shared::StatusMessage::error(format!(
-                    "Simulation lente : la simulation {n} a dépassé la limite d'1s ({steps} étapes, marquée Pas fini)"
-                )),
-            );
-        }
-
         if runner.is_done() {
             let max_time = runner.max_simulation_time();
+            let total_time = runner.total_simulation_time();
             self.simulation_runner = None;
             if let Some(stats) = &mut self.stats {
                 stats.max_simulation_time = max_time;
+                stats.total_simulation_time = total_time;
             }
         }
     }
@@ -1129,6 +1139,9 @@ impl FractalEditor {
             ui.label(format!("Distance moyenne: {:.2}", stats.average_length));
             if stats.max_simulation_time > 0.0 {
                 ui.label(format!("Temps max simulation: {:.2}s", stats.max_simulation_time));
+            }
+            if stats.total_simulation_time > 0.0 {
+                ui.label(format!("Temps total simulations: {:.2}s", stats.total_simulation_time));
             }
         }
     }
