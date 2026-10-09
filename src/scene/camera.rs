@@ -6,7 +6,6 @@ pub struct Camera {
     pub position: Vec2,
     pub zoom: f32,
 
-    pub grid_spacing: f32,
     pub display_grid: bool,
     pub magnetism: bool,
 
@@ -21,7 +20,6 @@ impl Default for Camera {
         Self {
             position: Vec2::ZERO,
             zoom: 10.0,
-            grid_spacing: 50.0,
             display_grid: true,
             magnetism: true,
             display_points: true,
@@ -36,7 +34,6 @@ impl Default for Camera {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct CameraSettings {
-    pub grid_spacing: f32,
     pub display_grid: bool,
     pub magnetism: bool,
     pub display_points: bool,
@@ -54,7 +51,6 @@ impl Default for CameraSettings {
 impl Camera {
     pub fn settings(&self) -> CameraSettings {
         CameraSettings {
-            grid_spacing: self.grid_spacing,
             display_grid: self.display_grid,
             magnetism: self.magnetism,
             display_points: self.display_points,
@@ -65,7 +61,6 @@ impl Camera {
     }
 
     pub fn apply_settings(&mut self, settings: &CameraSettings) {
-        self.grid_spacing = settings.grid_spacing;
         self.display_grid = settings.display_grid;
         self.magnetism = settings.magnetism;
         self.display_points = settings.display_points;

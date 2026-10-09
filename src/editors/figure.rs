@@ -285,43 +285,44 @@ impl FigureEditor {
             ui.separator();
 
             ui.menu_button("Options", |ui| {
-                ui.checkbox(&mut self.show_gizmo, "Gizmo");
-                ui.checkbox(&mut self.camera.display_grid, "Grille");
-                if self.camera.display_grid {
-                    ui.add(egui::Slider::new(&mut self.camera.grid_spacing, 10.0..=200.0).text("Espacement"));
-                    ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
-                }
-                ui.checkbox(&mut self.camera.display_points, "Points");
-                ui.add(egui::Slider::new(&mut self.camera.point_size, 2.0..=25.0).text("Taille"));
-                ui.checkbox(&mut self.camera.display_origin, "Origine");
+                shared::view_options(ui, &mut self.camera);
+                shared::points_option(ui, &mut self.camera);
+                shared::edit_options(ui, &mut self.show_gizmo, &mut self.camera);
             });
 
-            if let Some(ref shape) = self.shape {
-                if ui.button("Mode souris").clicked() {
+            let has_shape = self.shape.is_some();
+            ui.add_enabled_ui(has_shape, |ui| {
+                if ui.button("Mode souris").on_disabled_hover_text("Aucune figure").clicked() {
                     self.state = EditorState::Mouse;
                 }
-                if ui.button("Mode point").clicked() {
+                if ui.button("Mode point").on_disabled_hover_text("Aucune figure").clicked() {
                     self.state = EditorState::Point;
                 }
-                ui.separator();
-                            if ui.button("➡ Envoyer").clicked() {
-                        self.transfer_shape = Some(shape.to_shape_wrapper());
-                        let pts = shape.points().to_vec();
-                        let lns = match shape {
-                            FigureShape::Polygon(_) => {
-                                if pts.len() >= 2 {
-                                    let mut lines: Vec<Line> = (0..pts.len() - 1).map(|i| [i, i + 1]).collect();
-                                    if pts.len() > 2 {
-                                        lines.push([pts.len() - 1, 0]);
-                                    }
-                                    lines
-                                } else { Vec::new() }
-                            }
-                            FigureShape::FreeLinear(s) => s.lines().to_vec(),
-                        };
-                        self.transfer_to_pattern = Some((pts.clone(), lns.clone()));
-                        self.transfer_to_initial = Some((pts, lns));
-                    }
+            });
+            ui.separator();
+            if ui
+                .add_enabled(has_shape, egui::Button::new("➡ Envoyer"))
+                .on_disabled_hover_text("Aucune figure à envoyer")
+                .clicked()
+            {
+                if let Some(ref shape) = self.shape {
+                    self.transfer_shape = Some(shape.to_shape_wrapper());
+                    let pts = shape.points().to_vec();
+                    let lns = match shape {
+                        FigureShape::Polygon(_) => {
+                            if pts.len() >= 2 {
+                                let mut lines: Vec<Line> = (0..pts.len() - 1).map(|i| [i, i + 1]).collect();
+                                if pts.len() > 2 {
+                                    lines.push([pts.len() - 1, 0]);
+                                }
+                                lines
+                            } else { Vec::new() }
+                        }
+                        FigureShape::FreeLinear(s) => s.lines().to_vec(),
+                    };
+                    self.transfer_to_pattern = Some((pts.clone(), lns.clone()));
+                    self.transfer_to_initial = Some((pts, lns));
+                }
             }
 
             shared::render_status_message(ui, &mut self.message);

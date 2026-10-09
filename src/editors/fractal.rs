@@ -814,21 +814,7 @@ impl FractalEditor {
                 }
             });
 
-            ui.menu_button("Grille", |ui| {
-                ui.checkbox(&mut self.camera.display_grid, "Afficher");
-                if self.camera.display_grid {
-                    ui.add(egui::Slider::new(&mut self.camera.grid_spacing, 10.0..=200.0).text("Espacement"));
-                }
-            });
-
-            ui.menu_button("Options", |ui| {
-                ui.checkbox(&mut self.camera.display_points, "Points");
-                ui.checkbox(&mut self.camera.display_lines, "Lignes");
-                ui.add(egui::Slider::new(&mut self.camera.point_size, 2.0..=25.0).text("Taille points"));
-                ui.checkbox(&mut self.camera.display_origin, "Origine");
-
-                ui.separator();
-                ui.label("Génération");
+            ui.menu_button("Génération", |ui| {
                 ui.add(egui::Slider::new(&mut self.iterations, 1..=10).text("Itérations"));
                 ui.checkbox(&mut self.regroup, "Regrouper points");
                 ui.checkbox(&mut self.display_parent, "Afficher parents");
@@ -912,6 +898,12 @@ impl FractalEditor {
                         self.individual_heatmap.clear();
                     }
                 }
+            });
+
+            ui.menu_button("Options", |ui| {
+                shared::view_options(ui, &mut self.camera);
+                shared::points_option(ui, &mut self.camera);
+                ui.checkbox(&mut self.camera.display_lines, "Lignes");
             });
 
             shared::render_status_message(ui, &mut self.message);

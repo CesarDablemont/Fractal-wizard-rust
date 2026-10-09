@@ -223,15 +223,18 @@ impl PatternEditor {
             });
 
             ui.menu_button("Options", |ui| {
-                ui.checkbox(&mut self.show_origin_figure, "Afficher la figure d'origine");
-                ui.checkbox(&mut self.show_gizmo, "Gizmo");
-                ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
+                shared::view_options(ui, &mut self.camera);
+                ui.checkbox(&mut self.show_origin_figure, "Figure d'origine");
+                shared::edit_options(ui, &mut self.show_gizmo, &mut self.camera);
             });
 
-            if !self.patterns.is_empty()
-                && ui.button("➡ Envoyer à Fractale").clicked() {
-                    self.transfer_patterns = Some(self.patterns.clone());
-                }
+            if ui
+                .add_enabled(!self.patterns.is_empty(), egui::Button::new("➡ Envoyer à Fractale"))
+                .on_disabled_hover_text("Aucun pattern à envoyer")
+                .clicked()
+            {
+                self.transfer_patterns = Some(self.patterns.clone());
+            }
 
             if ui.button("Nouveau pattern").clicked() {
                 self.push_undo();
