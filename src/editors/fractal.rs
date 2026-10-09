@@ -4,7 +4,7 @@ use crate::fractal::generator::{self, FractalResult};
 use crate::fractal::hopping;
 use crate::fractal::random_walk::{self, RandomWalkStats, SimulationRunner};
 use crate::heatmap::{self, heatmap_color};
-use crate::scene::camera::Camera;
+use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::{self, CanvasRenderer};
 use crate::scene::chunk_grid::ChunkGrid;
 use crate::shapes::polygon::Polygon;
@@ -17,6 +17,51 @@ use super::shared;
 /// Temps de calcul accordé aux simulations à chaque frame : assez pour avancer
 /// vite, assez court pour que l'interface reste fluide (~60 fps).
 const SIMULATION_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Réglages de la fenêtre `Exporter (csv)`, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExportSettings {
+    pub points: bool,
+    pub lines: bool,
+    pub weights: bool,
+}
+
+impl Default for ExportSettings {
+    fn default() -> Self {
+        Self {
+            points: true,
+            lines: true,
+            weights: false,
+        }
+    }
+}
+
+/// Réglages des menus `Simulation`, `Grille`, `Options` et de la fenêtre
+/// d'export, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FractalSettings {
+    pub simulation_count: u32,
+    pub min_steps: u64,
+    pub max_steps: u64,
+    pub allow_min: bool,
+    pub allow_max: bool,
+    pub beta: f32,
+    pub iterations: usize,
+    pub regroup: bool,
+    pub display_parent: bool,
+    pub add_delta: bool,
+    pub delta: [f32; 2],
+    pub camera: CameraSettings,
+    export: ExportSettings,
+}
+
+impl Default for FractalSettings {
+    fn default() -> Self {
+        FractalEditor::default().settings()
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct FractalFile {
@@ -94,9 +139,9 @@ pub struct FractalEditor {
     dragging_density_source: Option<usize>,
 
     pub export_show: bool,
-    pub export_points: bool,
-    pub export_lines: bool,
-    pub export_weights: bool,
+    pub export: ExportSettings,
+    /// `beta` des poids exportés, pré-rempli à l'ouverture de la fenêtre d'export.
+    export_beta: f32,
 
     message: Option<shared::StatusMessage>,
 
@@ -182,9 +227,8 @@ impl Default for FractalEditor {
             selected_density_source: None,
             dragging_density_source: None,
             export_show: false,
-            export_points: true,
-            export_lines: true,
-            export_weights: false,
+            export: ExportSettings::default(),
+            export_beta: 0.0,
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -193,6 +237,40 @@ impl Default for FractalEditor {
 }
 
 impl FractalEditor {
+    pub fn settings(&self) -> FractalSettings {
+        FractalSettings {
+            simulation_count: self.simulation_count,
+            min_steps: self.min_steps,
+            max_steps: self.max_steps,
+            allow_min: self.allow_min,
+            allow_max: self.allow_max,
+            beta: self.beta,
+            iterations: self.iterations,
+            regroup: self.regroup,
+            display_parent: self.display_parent,
+            add_delta: self.add_delta,
+            delta: [self.delta.x, self.delta.y],
+            camera: self.camera.settings(),
+            export: self.export.clone(),
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &FractalSettings) {
+        self.simulation_count = settings.simulation_count;
+        self.min_steps = settings.min_steps;
+        self.max_steps = settings.max_steps;
+        self.allow_min = settings.allow_min;
+        self.allow_max = settings.allow_max;
+        self.beta = settings.beta;
+        self.iterations = settings.iterations;
+        self.regroup = settings.regroup;
+        self.display_parent = settings.display_parent;
+        self.add_delta = settings.add_delta;
+        self.delta = Vec2::from(settings.delta);
+        self.camera.apply_settings(&settings.camera);
+        self.export = settings.export.clone();
+    }
+
     fn fractal_points(&self) -> &[Pos2] {
         self.fractal.as_ref().map(|f| f.points.as_slice()).unwrap_or(&[])
     }
@@ -486,16 +564,16 @@ impl FractalEditor {
             .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.label("Éléments à exporter :");
-                ui.checkbox(&mut self.export_points, "Points (x, y)");
-                ui.checkbox(&mut self.export_lines, "Liaisons (i, j)");
-                ui.add_enabled_ui(self.export_lines, |ui| {
+                ui.checkbox(&mut self.export.points, "Points (x, y)");
+                ui.checkbox(&mut self.export.lines, "Liaisons (i, j)");
+                ui.add_enabled_ui(self.export.lines, |ui| {
                     ui.indent("export_weights", |ui| {
-                        ui.checkbox(&mut self.export_weights, "avec poids t (i, j, t)").on_hover_text(
-                            "Hopping relatif t = exp(-beta * (d / d0 - 1)) par liaison, d0 = longueur médiane des liaisons, avec le beta du marcheur ivre.",
+                        ui.checkbox(&mut self.export.weights, "avec poids t (i, j, t)").on_hover_text(
+                            "Hopping relatif t = exp(-beta * (d / d0 - 1)) par liaison, d0 = longueur médiane des liaisons.",
                         );
                     });
                 });
-                if self.export_lines && self.export_weights {
+                if self.export.lines && self.export.weights {
                     self.render_export_beta(ui);
                 }
 
@@ -512,32 +590,43 @@ impl FractalEditor {
             });
     }
 
-    /// `beta` utilisé pour les poids exportés : celui des simulations affichées
+    /// `beta` par défaut des poids exportés : celui des simulations affichées
     /// s'il y en a, sinon le réglage courant.
-    fn export_beta(&self) -> f32 {
+    fn default_export_beta(&self) -> f32 {
         self.simulation_beta.unwrap_or(self.beta)
     }
 
-    fn render_export_beta(&self, ui: &mut egui::Ui) {
-        let beta = self.export_beta();
-        let warn = ui.visuals().warn_fg_color;
-        match self.simulation_beta {
-            Some(sim_beta) => {
-                ui.label(format!("beta = {sim_beta:.2} (simulations affichées)"));
-                if sim_beta != self.beta {
-                    ui.colored_label(
-                        warn,
-                        format!("Le réglage actuel ({:.2}) n'a pas été simulé", self.beta),
-                    );
+    fn open_export_window(&mut self) {
+        self.export_beta = self.default_export_beta();
+        self.export_show = true;
+    }
+
+    fn render_export_beta(&mut self, ui: &mut egui::Ui) {
+        let default_beta = self.default_export_beta();
+        ui.indent("export_beta", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Beta (distance):");
+                ui.add(egui::DragValue::new(&mut self.export_beta).speed(0.1).range(0.0..=10.0));
+                let source = if self.simulation_beta.is_some() {
+                    "simulations affichées"
+                } else {
+                    "réglage Simulation"
+                };
+                if ui
+                    .add_enabled(self.export_beta != default_beta, egui::Button::new("↺"))
+                    .on_hover_text(format!("Revenir à {default_beta:.2} ({source})"))
+                    .clicked()
+                {
+                    self.export_beta = default_beta;
                 }
+            });
+            if self.export_beta == 0.0 {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "beta = 0 : tous les t valent 1 (liaisons uniformes)",
+                );
             }
-            None => {
-                ui.label(format!("beta = {beta:.2} (réglage Simulation)"));
-            }
-        }
-        if beta == 0.0 {
-            ui.colored_label(warn, "beta = 0 : tous les t valent 1 (liaisons uniformes)");
-        }
+        });
     }
 
     fn export_csv(&mut self) {
@@ -548,7 +637,7 @@ impl FractalEditor {
             );
             return;
         };
-        if !self.export_points && !self.export_lines {
+        if !self.export.points && !self.export.lines {
             shared::set_status_message(
                 &mut self.message,
                 shared::StatusMessage::error("Sélectionnez au moins un élément à exporter"),
@@ -567,20 +656,20 @@ impl FractalEditor {
             return;
         };
 
-        let beta = self.export_beta();
-        let use_weights = self.export_lines && self.export_weights;
+        let beta = self.export_beta;
+        let use_weights = self.export.lines && self.export.weights;
 
         // Même graphe que celui parcouru par le marcheur ivre.
         let graph = generator::merge_graph(&fractal.points, &fractal.lines);
         let mut files: Vec<(std::path::PathBuf, String, String)> = Vec::new();
-        if self.export_points {
+        if self.export.points {
             files.push((
                 file_io::csv_path(&base, "_points"),
                 file_io::points_to_csv(&graph.points),
                 format!("{} points", graph.points.len()),
             ));
         }
-        if self.export_lines {
+        if self.export.lines {
             let weights = use_weights.then(|| hopping::edge_weights(&graph.points, &graph.lines, beta));
             let label = if use_weights {
                 format!("{} liaisons (t, beta = {beta:.2})", graph.lines.len())
@@ -693,7 +782,7 @@ impl FractalEditor {
                 }
                 ui.separator();
                 if ui.button("Exporter (csv)").clicked() {
-                    self.export_show = true;
+                    self.open_export_window();
                     ui.close_menu();
                 }
             });
@@ -725,21 +814,7 @@ impl FractalEditor {
                 }
             });
 
-            ui.menu_button("Grille", |ui| {
-                ui.checkbox(&mut self.camera.display_grid, "Afficher");
-                if self.camera.display_grid {
-                    ui.add(egui::Slider::new(&mut self.camera.grid_spacing, 10.0..=200.0).text("Espacement"));
-                }
-            });
-
-            ui.menu_button("Options", |ui| {
-                ui.checkbox(&mut self.camera.display_points, "Points");
-                ui.checkbox(&mut self.camera.display_lines, "Lignes");
-                ui.add(egui::Slider::new(&mut self.camera.point_size, 2.0..=25.0).text("Taille points"));
-                ui.checkbox(&mut self.camera.display_origin, "Origine");
-
-                ui.separator();
-                ui.label("Génération");
+            ui.menu_button("Génération", |ui| {
                 ui.add(egui::Slider::new(&mut self.iterations, 1..=10).text("Itérations"));
                 ui.checkbox(&mut self.regroup, "Regrouper points");
                 ui.checkbox(&mut self.display_parent, "Afficher parents");
@@ -823,6 +898,12 @@ impl FractalEditor {
                         self.individual_heatmap.clear();
                     }
                 }
+            });
+
+            ui.menu_button("Options", |ui| {
+                shared::view_options(ui, &mut self.camera);
+                shared::points_option(ui, &mut self.camera);
+                ui.checkbox(&mut self.camera.display_lines, "Lignes");
             });
 
             shared::render_status_message(ui, &mut self.message);

@@ -1,6 +1,6 @@
 use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
 use serde::{Deserialize, Serialize};
-use crate::scene::camera::Camera;
+use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::CanvasRenderer;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
@@ -45,6 +45,21 @@ pub struct PatternEditor {
     property_dragging: bool,
 }
 
+/// Réglages du menu `Options`, mémorisés entre deux lancements.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PatternSettings {
+    pub show_origin_figure: bool,
+    pub show_gizmo: bool,
+    pub camera: CameraSettings,
+}
+
+impl Default for PatternSettings {
+    fn default() -> Self {
+        PatternEditor::default().settings()
+    }
+}
+
 impl Default for PatternEditor {
     fn default() -> Self {
         let (mp, ml) = shared::default_model();
@@ -72,6 +87,20 @@ impl Default for PatternEditor {
 }
 
 impl PatternEditor {
+    pub fn settings(&self) -> PatternSettings {
+        PatternSettings {
+            show_origin_figure: self.show_origin_figure,
+            show_gizmo: self.show_gizmo,
+            camera: self.camera.settings(),
+        }
+    }
+
+    pub fn apply_settings(&mut self, settings: &PatternSettings) {
+        self.show_origin_figure = settings.show_origin_figure;
+        self.show_gizmo = settings.show_gizmo;
+        self.camera.apply_settings(&settings.camera);
+    }
+
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
             self.model_points = pts;
@@ -194,15 +223,18 @@ impl PatternEditor {
             });
 
             ui.menu_button("Options", |ui| {
-                ui.checkbox(&mut self.show_origin_figure, "Afficher la figure d'origine");
-                ui.checkbox(&mut self.show_gizmo, "Gizmo");
-                ui.checkbox(&mut self.camera.magnetism, "Magnétisme");
+                shared::view_options(ui, &mut self.camera);
+                ui.checkbox(&mut self.show_origin_figure, "Figure d'origine");
+                shared::edit_options(ui, &mut self.show_gizmo, &mut self.camera);
             });
 
-            if !self.patterns.is_empty()
-                && ui.button("➡ Envoyer à Fractale").clicked() {
-                    self.transfer_patterns = Some(self.patterns.clone());
-                }
+            if ui
+                .add_enabled(!self.patterns.is_empty(), egui::Button::new("➡ Envoyer à Fractale"))
+                .on_disabled_hover_text("Aucun pattern à envoyer")
+                .clicked()
+            {
+                self.transfer_patterns = Some(self.patterns.clone());
+            }
 
             if ui.button("Nouveau pattern").clicked() {
                 self.push_undo();

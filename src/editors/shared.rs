@@ -76,6 +76,32 @@ pub fn render_status_message(ui: &mut egui::Ui, slot: &mut Option<StatusMessage>
     ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, text, font_id, fg);
 }
 
+/// Section « Affichage » commune au menu `Options` de tous les éditeurs.
+pub fn view_options(ui: &mut egui::Ui, camera: &mut Camera) {
+    ui.label("Affichage");
+    ui.checkbox(&mut camera.display_grid, "Grille");
+    ui.checkbox(&mut camera.display_origin, "Origine");
+}
+
+/// Case « Points » et taille des points, pour les éditeurs qui affichent des points.
+pub fn points_option(ui: &mut egui::Ui, camera: &mut Camera) {
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut camera.display_points, "Points");
+        ui.add_enabled(
+            camera.display_points,
+            egui::Slider::new(&mut camera.point_size, 2.0..=25.0).text("Taille"),
+        );
+    });
+}
+
+/// Section « Édition » commune au menu `Options` des éditeurs de formes.
+pub fn edit_options(ui: &mut egui::Ui, show_gizmo: &mut bool, camera: &mut Camera) {
+    ui.separator();
+    ui.label("Édition");
+    ui.checkbox(show_gizmo, "Gizmo");
+    ui.checkbox(&mut camera.magnetism, "Magnétisme");
+}
+
 pub struct GizmoContext<'a> {
     pub ui: &'a egui::Ui,
     pub camera: &'a Camera,
