@@ -347,7 +347,7 @@ impl FigureEditor {
         if let Some(ref shape) = self.shape {
             let points = shape.points();
             if !points.is_empty() {
-                let stroke = Stroke::new(2.0, Color32::YELLOW);
+                let stroke = Stroke::new(2.0_f32, Color32::YELLOW);
                 let mut prev_screen = None;
                 for &p in points {
                     let screen = self.camera.world_to_screen(p, canvas_center);

@@ -30,7 +30,7 @@ impl Gizmo {
         shapes: &mut Vec<Shape>,
     ) {
         let origin = camera.world_to_screen(world_pos, canvas_center);
-        let stroke_w = 2.0;
+        let stroke_w = 2.0_f32;
 
         let x_color = if hovered == GizmoHit::X { COLOR_HOVER } else { COLOR_X };
         let y_color = if hovered == GizmoHit::Y { COLOR_HOVER } else { COLOR_Y };

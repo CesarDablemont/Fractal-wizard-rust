@@ -82,8 +82,8 @@ impl CanvasRenderer {
 
         let grid_color = Color32::from_rgba_premultiplied(120, 120, 120, 60);
         let origin_color = Color32::from_rgba_premultiplied(120, 120, 120, 140);
-        let stroke = Stroke::new(1.0, grid_color);
-        let origin_stroke = Stroke::new(1.5, origin_color);
+        let stroke = Stroke::new(1.0_f32, grid_color);
+        let origin_stroke = Stroke::new(1.5_f32, origin_color);
 
         let mut x = start_x;
         while x <= end_x {
@@ -117,8 +117,8 @@ impl CanvasRenderer {
         let ex = camera.world_to_screen(pos2(0.0, viewport.max.y), center);
         let ey = camera.world_to_screen(pos2(viewport.max.x, 0.0), center);
 
-        shapes.push(Shape::line_segment([ox, ex], Stroke::new(2.0, Color32::RED)));
-        shapes.push(Shape::line_segment([oy, ey], Stroke::new(2.0, Color32::GREEN)));
+        shapes.push(Shape::line_segment([ox, ex], Stroke::new(2.0_f32, Color32::RED)));
+        shapes.push(Shape::line_segment([oy, ey], Stroke::new(2.0_f32, Color32::GREEN)));
     }
 
     pub fn draw_fractal_lines(
@@ -157,7 +157,7 @@ impl CanvasRenderer {
         let mut mesh = Mesh::default();
 
         if let Some(grid) = &self.chunk_grid {
-            let visible = grid.visible_lines(lines, points, viewport);
+            let visible = grid.visible_lines(viewport);
             for &li in &visible {
                 let [a, b] = lines[li];
                 if a >= points.len() || b >= points.len() {

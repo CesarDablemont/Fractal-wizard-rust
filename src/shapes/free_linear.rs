@@ -89,6 +89,22 @@ mod tests {
     }
 
     #[test]
+    fn remove_point_keeps_remaining_lines_valid() {
+        let mut s = FreeLinearShape::new();
+        for i in 0..5 {
+            s.add_point(pos2(i as f32, 0.0));
+        }
+        // lines: [[0,1], [1,2], [2,3], [3,4]] + liaisons non adjacentes
+        s.add_line_segment(1, 3);
+        s.add_line_segment(0, 4);
+        s.add_line_segment(4, 2);
+        s.remove_point(1);
+        // Points restants : 0, 2, 3, 4 → nouveaux indices 0, 1, 2, 3.
+        // Les liaisons vers l'ancien 1 disparaissent, les autres sont décalées une seule fois.
+        assert_eq!(s.lines(), &[[1, 2], [2, 3], [0, 3], [3, 1]]);
+    }
+
+    #[test]
     fn remove_point_last() {
         let mut s = FreeLinearShape::new();
         s.add_point(pos2(0.0, 0.0));
