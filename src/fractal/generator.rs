@@ -206,7 +206,7 @@ pub fn generate_fractal(config: &FractalConfig<'_>) -> FractalResult {
     let mut final_points: Vec<Pos2> = Vec::new();
     let mut final_lines: Vec<Line> = Vec::new();
     let mut final_point_scale: Vec<f32> = Vec::new();
-    let mut point_map: HashMap<u64, usize> = HashMap::new();
+    let mut point_map: HashMap<(u32, u32), usize> = HashMap::new();
 
     for s in &all_shapes {
         let sp = get_points(s.translate, s.rotate, s.scale);
@@ -318,14 +318,17 @@ fn compute_iteration_bonus(pos: Pos2, sources: &[&DensitySource]) -> usize {
     }
 }
 
-fn point_key(p: Pos2) -> u64 {
-    u64::from(p.x.to_bits()) ^ (u64::from(p.y.to_bits()) << 32)
+/// Clé exacte (sans perte) d'un point : les bits bruts de `x` et `y`.
+/// Deux points distincts ont toujours des clés distinctes ; `+ 0.0` ramène
+/// `-0.0` sur `0.0` pour que ces deux valeurs égales partagent la même clé.
+fn point_key(p: Pos2) -> (u32, u32) {
+    ((p.x + 0.0).to_bits(), (p.y + 0.0).to_bits())
 }
 
 fn find_or_add_point(
     points: &mut Vec<Pos2>,
     scales: &mut Vec<f32>,
-    map: &mut HashMap<u64, usize>,
+    map: &mut HashMap<(u32, u32), usize>,
     p: Pos2,
     scale: f32,
 ) -> usize {
@@ -442,6 +445,19 @@ fn apply_density_field(points: &mut [Pos2], sources: &[DensitySource]) {
 mod tests {
     use super::*;
     use eframe::egui::vec2;
+
+    #[test]
+    fn point_key_is_exact() {
+        // Coordonnées symétriques / permutées : clés distinctes.
+        assert_ne!(point_key(pos2(1.0, 2.0)), point_key(pos2(2.0, 1.0)));
+        assert_ne!(point_key(pos2(1.0, 1.0)), point_key(pos2(-1.0, -1.0)));
+        // Coordonnées voisines au bit près : clés distinctes.
+        let x = 0.1f32;
+        let next = f32::from_bits(x.to_bits() + 1);
+        assert_ne!(point_key(pos2(x, 0.0)), point_key(pos2(next, 0.0)));
+        // -0.0 et 0.0 désignent le même point.
+        assert_eq!(point_key(pos2(-0.0, 0.0)), point_key(pos2(0.0, -0.0)));
+    }
 
     #[test]
     fn merge_vertices_removes_duplicate_edges() {
