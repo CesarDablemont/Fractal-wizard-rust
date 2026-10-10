@@ -157,7 +157,7 @@ impl CanvasRenderer {
         let mut mesh = Mesh::default();
 
         if let Some(grid) = &self.chunk_grid {
-            let visible = grid.visible_lines(lines, points, viewport);
+            let visible = grid.visible_lines(viewport);
             for &li in &visible {
                 let [a, b] = lines[li];
                 if a >= points.len() || b >= points.len() {

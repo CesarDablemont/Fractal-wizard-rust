@@ -489,7 +489,8 @@ impl FractalEditor {
 
     fn update_chunks(&mut self) {
         if self.canvas_renderer.rebuild_chunks {
-            let points = self.fractal_points().to_vec();
+            let points = self.fractal.as_ref().map(|f| f.points.as_slice()).unwrap_or(&[]);
+            let lines = self.fractal.as_ref().map(|f| f.lines.as_slice()).unwrap_or(&[]);
             if !points.is_empty() {
                 let min_x = points.iter().map(|p| p.x).fold(f32::MAX, f32::min);
                 let max_x = points.iter().map(|p| p.x).fold(f32::MIN, f32::max);
@@ -497,7 +498,7 @@ impl FractalEditor {
                 let max_y = points.iter().map(|p| p.y).fold(f32::MIN, f32::max);
                 let size = (max_x - min_x).max(max_y - min_y);
                 let cell_size = (size / 50.0).max(size / (points.len() as f32).sqrt()).max(0.01);
-                self.canvas_renderer.chunk_grid = Some(ChunkGrid::new(&points, cell_size));
+                self.canvas_renderer.chunk_grid = Some(ChunkGrid::new(points, lines, cell_size));
             }
             self.canvas_renderer.rebuild_chunks = false;
         }
