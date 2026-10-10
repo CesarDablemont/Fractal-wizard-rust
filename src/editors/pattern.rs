@@ -1,12 +1,19 @@
-use eframe::egui::{self, Color32, Pos2, Shape, Vec2};
+use eframe::egui::{self, Color32, Pos2};
 use serde::{Deserialize, Serialize};
-use crate::scene::camera::{Camera, CameraSettings};
-use crate::scene::canvas::CanvasRenderer;
+use crate::scene::camera::CameraSettings;
 use crate::types::{Line, ShapePatternData};
 use crate::file_io;
-use crate::gizmo::{self, GizmoHit};
 use super::shared;
-use super::undo::UndoStack;
+use super::shape_list::{ShapeListEditor, ShapeListStyle};
+
+const STYLE: ShapeListStyle = ShapeListStyle {
+    item_label: "Pattern",
+    outliner_title: "Patterns",
+    empty_label: "Aucun pattern",
+    new_label: "Nouveau pattern",
+    nothing_to_send: "Aucun pattern à envoyer",
+    color: Color32::YELLOW,
+};
 
 #[derive(Serialize, Deserialize)]
 struct PatternFile {
@@ -14,35 +21,13 @@ struct PatternFile {
     patterns: Vec<ShapePatternData>,
 }
 
-#[derive(Clone)]
-struct PatternUndoState {
-    patterns: Vec<ShapePatternData>,
-    display_parent: bool,
-    selected: Vec<usize>,
-}
-
 pub struct PatternEditor {
-    pub patterns: Vec<ShapePatternData>,
-    pub display_parent: bool,
-    pub dimension: f32,
-
     pub transfer_patterns: Option<Vec<ShapePatternData>>,
     pub receive_figure: Option<(Vec<Pos2>, Vec<Line>)>,
 
-    model_points: Vec<Pos2>,
-    model_lines: Vec<Line>,
+    /// `extra` contient le `display_parent` du fichier pattern.
+    list: ShapeListEditor<bool>,
     show_origin_figure: bool,
-
-    camera: Camera,
-    canvas_renderer: CanvasRenderer,
-    gizmo_hit: GizmoHit,
-    gizmo_dragging: bool,
-    show_gizmo: bool,
-    selected: Vec<usize>,
-    last_clicked: Option<usize>,
-    message: Option<shared::StatusMessage>,
-    undo_stack: UndoStack<PatternUndoState>,
-    property_dragging: bool,
 }
 
 /// Réglages du menu `Options`, mémorisés entre deux lancements.
@@ -62,26 +47,11 @@ impl Default for PatternSettings {
 
 impl Default for PatternEditor {
     fn default() -> Self {
-        let (mp, ml) = shared::default_model();
         Self {
-            patterns: Vec::new(),
-            display_parent: false,
-            dimension: 0.0,
             transfer_patterns: None,
             receive_figure: None,
-            model_points: mp,
-            model_lines: ml,
+            list: ShapeListEditor::new(STYLE, false),
             show_origin_figure: true,
-            camera: Camera::default(),
-            canvas_renderer: CanvasRenderer::new(),
-            gizmo_hit: GizmoHit::None,
-            gizmo_dragging: false,
-            show_gizmo: true,
-            selected: Vec::new(),
-            last_clicked: None,
-            message: None,
-            undo_stack: UndoStack::new(100),
-            property_dragging: false,
         }
     }
 }
@@ -90,36 +60,24 @@ impl PatternEditor {
     pub fn settings(&self) -> PatternSettings {
         PatternSettings {
             show_origin_figure: self.show_origin_figure,
-            show_gizmo: self.show_gizmo,
-            camera: self.camera.settings(),
+            show_gizmo: self.list.show_gizmo,
+            camera: self.list.camera.settings(),
         }
     }
 
     pub fn apply_settings(&mut self, settings: &PatternSettings) {
         self.show_origin_figure = settings.show_origin_figure;
-        self.show_gizmo = settings.show_gizmo;
-        self.camera.apply_settings(&settings.camera);
+        self.list.show_gizmo = settings.show_gizmo;
+        self.list.camera.apply_settings(&settings.camera);
     }
 
     pub fn render(&mut self, ctx: &egui::Context) {
         if let Some((pts, lns)) = self.receive_figure.take() {
-            self.model_points = pts;
-            self.model_lines = lns;
+            self.list.model_points = pts;
+            self.list.model_lines = lns;
         }
 
-        if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
-            if !self.selected.is_empty() {
-                self.push_undo();
-            }
-            let mut to_remove: Vec<usize> = self.selected.clone();
-            to_remove.sort_unstable_by(|a, b| b.cmp(a));
-            for &i in &to_remove {
-                if i < self.patterns.len() {
-                    self.patterns.remove(i);
-                }
-            }
-            self.selected.clear();
-        }
+        self.list.handle_delete_key(ctx);
 
         egui::TopBottomPanel::top("pattern_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
@@ -129,11 +87,11 @@ impl PatternEditor {
             .resizable(true)
             .default_width(200.0)
             .show(ctx, |ui| {
-                self.render_outliner(ui);
+                self.list.render_outliner(ui);
             });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_canvas(ui);
+            self.list.render_canvas(ui, self.show_origin_figure);
         });
 
         egui::SidePanel::right("pattern_properties")
@@ -144,359 +102,70 @@ impl PatternEditor {
             });
     }
 
-    fn snapshot(&self) -> PatternUndoState {
-        PatternUndoState {
-            patterns: self.patterns.clone(),
-            display_parent: self.display_parent,
-            selected: self.selected.clone(),
-        }
-    }
-
-    fn restore(&mut self, state: PatternUndoState) {
-        self.patterns = state.patterns;
-        self.display_parent = state.display_parent;
-        self.selected = state.selected;
-        self.recalculate_dimension();
-    }
-
-    fn push_undo(&mut self) {
-        self.undo_stack.push(self.snapshot());
-    }
-
-    fn undo(&mut self) {
-        if let Some(state) = self.undo_stack.undo(self.snapshot()) {
-            self.restore(state);
-        }
-    }
-
-    fn redo(&mut self) {
-        if let Some(state) = self.undo_stack.redo(self.snapshot()) {
-            self.restore(state);
-        }
-    }
-
-    fn load_model(&mut self, content: &str) -> Result<(), String> {
-        shared::load_model(content, &mut self.model_points, &mut self.model_lines)
-    }
-
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Ouvrir (ptnfw)").clicked() {
-                    self.push_undo();
+                    self.list.push_undo();
                     if let Some((_path, content)) = file_io::open_json("Ouvrir un pattern", "ptnfw") {
                         match serde_json::from_str::<PatternFile>(&content) {
                             Ok(data) => {
-                                self.patterns = data.patterns;
-                                self.display_parent = data.display_parent;
-                                self.recalculate_dimension();
-                                shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern chargé"));
+                                self.list.shapes = data.patterns;
+                                self.list.extra = data.display_parent;
+                                self.list.info("Pattern chargé");
                             }
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
+                            Err(e) => self.list.error(e.to_string()),
                         }
                     }
                     ui.close_menu();
                 }
                 if ui.button("Enregistrer (ptnfw)").clicked() {
                     let data = PatternFile {
-                        display_parent: self.display_parent,
-                        patterns: self.patterns.clone(),
+                        display_parent: self.list.extra,
+                        patterns: self.list.shapes.clone(),
                     };
                     let json = serde_json::to_string_pretty(&data).unwrap();
                     if file_io::save_json("Enregistrer le pattern", "ptnfw", &json) {
-                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern enregistré"));
+                        self.list.info("Pattern enregistré");
                     }
                     ui.close_menu();
                 }
             });
 
-            ui.menu_button("Modèle", |ui| {
-                if ui.button("Ouvrir un modèle (firfw)").clicked() {
-                    if let Some((_path, content)) = file_io::open_json("Ouvrir un modèle", "firfw") {
-                        match self.load_model(&content) {
-                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Modèle chargé")),
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
-                        }
-                    }
-                    ui.close_menu();
-                }
-            });
+            self.list.model_menu(ui);
 
             ui.menu_button("Options", |ui| {
-                shared::view_options(ui, &mut self.camera);
+                shared::view_options(ui, &mut self.list.camera);
                 ui.checkbox(&mut self.show_origin_figure, "Figure d'origine");
-                shared::edit_options(ui, &mut self.show_gizmo, &mut self.camera);
+                shared::edit_options(ui, &mut self.list.show_gizmo, &mut self.list.camera);
             });
 
-            if ui
-                .add_enabled(!self.patterns.is_empty(), egui::Button::new("➡ Envoyer à Fractale"))
-                .on_disabled_hover_text("Aucun pattern à envoyer")
-                .clicked()
-            {
-                self.transfer_patterns = Some(self.patterns.clone());
+            if self.list.send_button(ui) {
+                self.transfer_patterns = Some(self.list.shapes.clone());
             }
 
-            if ui.button("Nouveau pattern").clicked() {
-                self.push_undo();
-                self.patterns.push(ShapePatternData::default());
-            }
-            if ui.button("Dupliquer sélection").clicked() {
-                self.push_undo();
-                let to_dup: Vec<_> = self.selected.clone();
-                for &i in to_dup.iter().rev() {
-                    if i < self.patterns.len() {
-                        let dup = self.patterns[i].clone();
-                        self.patterns.insert(i + 1, dup);
-                    }
-                }
-            }
-            if ui.button("Supprimer sélection").clicked() {
-                self.push_undo();
-                let mut to_remove: Vec<usize> = self.selected.clone();
-                to_remove.sort_unstable_by(|a, b| b.cmp(a));
-                for &i in &to_remove {
-                    if i < self.patterns.len() {
-                        self.patterns.remove(i);
-                    }
-                }
-                self.selected.clear();
-            }
+            self.list.edit_buttons(ui);
 
-            shared::render_status_message(ui, &mut self.message);
+            shared::render_status_message(ui, &mut self.list.message);
         });
-    }
-
-    fn render_outliner(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Patterns");
-        for (i, p) in self.patterns.iter().enumerate() {
-            let label = format!(
-                "Pattern {} : T({:.1}, {:.1}) R({:.1}°) S({:.2})",
-                i + 1, p.translate.x, p.translate.y, p.rotate.to_degrees(), p.scale
-            );
-            let selected = self.selected.contains(&i);
-            if ui.selectable_label(selected, &label).clicked() {
-                if ui.input(|i| i.modifiers.shift) {
-                    if let Some(anchor) = self.last_clicked {
-                        let start = anchor.min(i);
-                        let end = anchor.max(i);
-                        self.selected = (start..=end).collect();
-                    } else {
-                        self.selected = vec![i];
-                    }
-                } else if ui.input(|i| i.modifiers.ctrl) {
-                    if selected {
-                        self.selected.retain(|&x| x != i);
-                    } else {
-                        self.selected.push(i);
-                    }
-                } else {
-                    self.selected = vec![i];
-                }
-                self.last_clicked = Some(i);
-            }
-        }
-        if self.patterns.is_empty() {
-            ui.label("Aucun pattern");
-        }
-    }
-
-    fn render_canvas(&mut self, ui: &mut egui::Ui) {
-        let (response, painter) = ui.allocate_painter(
-            ui.available_size(),
-            egui::Sense::click_and_drag(),
-        );
-        let canvas_rect = response.rect;
-        let canvas_center = canvas_rect.center();
-        let mut shapes: Vec<Shape> = Vec::new();
-
-        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
-        shared::handle_middle_pan(&response, ui, &mut self.camera);
-
-        self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
-        self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
-
-        if self.show_origin_figure && !self.model_points.is_empty() {
-            shared::render_shape_at(
-                &self.model_points, &self.model_lines,
-                &self.camera, canvas_center,
-                &shared::ShapeTransform { translate: Pos2::ZERO, rotate: 0.0, scale: 1.0 },
-                Color32::from_rgba_premultiplied(180, 180, 180, 100),
-                &mut shapes,
-            );
-        }
-
-        for (i, p) in self.patterns.iter().enumerate() {
-            let is_selected = self.selected.contains(&i);
-            let color = if is_selected { Color32::WHITE } else { Color32::YELLOW };
-            shared::render_shape_at(
-                &self.model_points, &self.model_lines,
-                &self.camera, canvas_center,
-                &shared::ShapeTransform { translate: p.translate, rotate: p.rotate, scale: 1.0 / p.scale },
-                color,
-                &mut shapes,
-            );
-        }
-
-        let translates: Vec<Pos2> = self.patterns.iter().map(|s| s.translate).collect();
-
-        let gizmo_ctx = shared::GizmoContext {
-            ui, camera: &self.camera, canvas_center,
-            show_gizmo: self.show_gizmo,
-            translates: &translates,
-        };
-
-        shared::handle_draw_gizmo(
-            &gizmo_ctx, &self.selected, self.gizmo_dragging,
-            &mut self.gizmo_hit, &mut shapes,
-        );
-
-        shared::handle_primary_click_selection(
-            &gizmo_ctx, &response,
-            self.gizmo_hit, self.camera.point_size,
-            &mut self.selected,
-        );
-
-        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
-        let pointer_released = ui.input(|i| i.pointer.any_released());
-        let half = self.camera.point_size;
-
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
-            self.undo();
-        }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
-            self.redo();
-        }
-
-        if self.gizmo_dragging {
-            if pointer_released {
-                self.gizmo_dragging = false;
-                if self.camera.magnetism {
-                    if let Some(&idx) = self.selected.first() {
-                        if idx < self.patterns.len() {
-                            let p = &self.patterns[idx];
-                            let others: Vec<shared::OtherTransform> = self.patterns
-                                .iter()
-                                .enumerate()
-                                .filter(|(i, _)| *i != idx)
-                                .map(|(_, p)| shared::OtherTransform {
-                                    translate: p.translate,
-                                    rotate: p.rotate,
-                                    scale: 1.0 / p.scale,
-                                })
-                                .collect();
-                            let offset = shared::snap_translation(
-                                &self.model_points, p.translate, p.rotate, 1.0 / p.scale,
-                                self.camera.zoom,
-                                &others,
-                            );
-                            self.patterns[idx].translate += offset;
-                            self.recalculate_dimension();
-                        }
-                    }
-                }
-            } else {
-                let delta = ui.input(|i| i.pointer.delta());
-                if delta != Vec2::ZERO {
-                    let world_delta = gizmo::Gizmo::handle_drag(self.gizmo_hit, delta, &self.camera);
-                    if let Some(&idx) = self.selected.first() {
-                        if idx < self.patterns.len() {
-                            self.patterns[idx].translate += world_delta;
-                            self.recalculate_dimension();
-                        }
-                    }
-                }
-            }
-        } else if pointer_pressed && self.show_gizmo && self.gizmo_hit != GizmoHit::None {
-            self.push_undo();
-            self.gizmo_dragging = true;
-        } else if let Some(&idx) = self.selected.first() {
-            if response.dragged_by(egui::PointerButton::Primary) && idx < self.patterns.len() {
-                if pointer_pressed {
-                    self.push_undo();
-                }
-                let delta = ui.input(|i| i.pointer.delta());
-                if delta != Vec2::ZERO {
-                    let world_delta = self.camera.screen_delta_to_world(delta);
-                    self.patterns[idx].translate += world_delta;
-                    self.recalculate_dimension();
-                }
-            }
-        } else if response.dragged_by(egui::PointerButton::Primary) {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
-
-        if response.clicked_by(egui::PointerButton::Secondary) {
-            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                if let Some(idx) = shared::iter_hit_test(&translates, mouse, &self.camera, canvas_center, half) {
-                    self.push_undo();
-                    self.patterns.remove(idx);
-                    self.selected.retain(|&x| x != idx);
-                }
-            }
-        }
-
-        painter.extend(shapes);
     }
 
     fn render_properties(&mut self, ui: &mut egui::Ui) {
         ui.heading("Propriétés");
 
-        if !self.patterns.is_empty() {
-            ui.label(format!("Dimension estimée: {:.3}", self.dimension));
-            ui.label(format!("Modèle: {} pts, {} lignes", self.model_points.len(), self.model_lines.len()));
+        if let Some(dimension) = self.dimension() {
+            ui.label(format!("Dimension estimée: {:.3}", dimension));
+        }
+        if !self.list.shapes.is_empty() {
+            self.list.model_info_label(ui);
         }
 
-        if let Some(&idx) = self.selected.first() {
-            if idx < self.patterns.len() {
-                let old_translate = self.patterns[idx].translate;
-                let old_rotate = self.patterns[idx].rotate;
-                let old_scale = self.patterns[idx].scale;
-
-                let old_state = self.snapshot();
-
-                let changed = {
-                    let p = &mut self.patterns[idx];
-                    shared::render_transform_properties(
-                        ui,
-                        &format!("Pattern {}", idx + 1),
-                        &mut p.translate,
-                        &mut p.rotate,
-                        &mut p.scale,
-                    )
-                };
-
-                if changed {
-                    if !self.property_dragging {
-                        self.property_dragging = true;
-                        self.undo_stack.push(old_state);
-                    }
-
-                    let d_translate = self.patterns[idx].translate - old_translate;
-                    let d_rotate = self.patterns[idx].rotate - old_rotate;
-                    let d_scale = self.patterns[idx].scale - old_scale;
-
-                    for &sel in &self.selected {
-                        if sel != idx && sel < self.patterns.len() {
-                            self.patterns[sel].translate += d_translate;
-                            self.patterns[sel].rotate += d_rotate;
-                            self.patterns[sel].scale += d_scale;
-                        }
-                    }
-                    self.recalculate_dimension();
-                } else {
-                    self.property_dragging = false;
-                }
-            }
-        }
+        self.list.render_selection_properties(ui);
     }
 
-    fn recalculate_dimension(&mut self) {
-        if !self.patterns.is_empty() && self.patterns[0].scale > 0.0 {
-            let n = self.patterns.len() as f32;
-            let h = self.patterns[0].scale;
-            if h > 0.0 {
-                self.dimension = n.log10() / h.log10();
-            }
-        }
+    /// Dimension d'auto-similarité : log(N) / log(h), h étant l'échelle du premier pattern.
+    fn dimension(&self) -> Option<f32> {
+        let h = self.list.shapes.first()?.scale;
+        (h > 0.0).then(|| (self.list.shapes.len() as f32).log10() / h.log10())
     }
 }
