@@ -1138,7 +1138,7 @@ impl FractalEditor {
                     format!("I-{}", i + 1),
                 ),
             };
-            let stroke = egui::Stroke::new(1.5, stroke_color);
+            let stroke = egui::Stroke::new(1.5_f32, stroke_color);
             shapes.push(Shape::Circle(egui::epaint::CircleShape {
                 center,
                 radius: screen_radius,

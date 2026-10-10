@@ -154,7 +154,7 @@ pub fn render_shape_at(
     if model_points.is_empty() {
         return;
     }
-    let stroke = Stroke::new(1.5, color);
+    let stroke = Stroke::new(1.5_f32, color);
     let transformed: Vec<Pos2> = model_points
         .iter()
         .map(|&p| apply_transform(p, transform.translate, transform.rotate, Vec2::new(transform.scale, transform.scale)))
