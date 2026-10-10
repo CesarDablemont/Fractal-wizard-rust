@@ -16,10 +16,11 @@ impl FreeLinearShape {
         }
     }
 
-    pub fn add_line_segment(&mut self, a: usize, b: usize) {
-        if a < self.points.len() && b < self.points.len() {
-            self.lines.push([a, b]);
-        }
+    /// Construit la forme telle quelle, sans chaîner les points ; les lignes invalides sont ignorées.
+    pub fn from_parts(points: Vec<Pos2>, lines: Vec<Line>) -> Self {
+        let n = points.len();
+        let lines = lines.into_iter().filter(|&[a, b]| a < n && b < n).collect();
+        Self { points, lines }
     }
 }
 
@@ -90,18 +91,20 @@ mod tests {
 
     #[test]
     fn remove_point_keeps_remaining_lines_valid() {
-        let mut s = FreeLinearShape::new();
-        for i in 0..5 {
-            s.add_point(pos2(i as f32, 0.0));
-        }
-        // lines: [[0,1], [1,2], [2,3], [3,4]] + liaisons non adjacentes
-        s.add_line_segment(1, 3);
-        s.add_line_segment(0, 4);
-        s.add_line_segment(4, 2);
+        let points = (0..5).map(|i| pos2(i as f32, 0.0)).collect();
+        // Chaîne [[0,1], [1,2], [2,3], [3,4]] + liaisons non adjacentes
+        let lines = vec![[0, 1], [1, 2], [2, 3], [3, 4], [1, 3], [0, 4], [4, 2]];
+        let mut s = FreeLinearShape::from_parts(points, lines);
         s.remove_point(1);
         // Points restants : 0, 2, 3, 4 → nouveaux indices 0, 1, 2, 3.
         // Les liaisons vers l'ancien 1 disparaissent, les autres sont décalées une seule fois.
         assert_eq!(s.lines(), &[[1, 2], [2, 3], [0, 3], [3, 1]]);
+    }
+
+    #[test]
+    fn from_parts_drops_invalid_lines() {
+        let s = FreeLinearShape::from_parts(vec![pos2(0.0, 0.0), pos2(1.0, 0.0)], vec![[0, 1], [1, 2]]);
+        assert_eq!(s.lines(), &[[0, 1]]);
     }
 
     #[test]
