@@ -7,8 +7,7 @@ use crate::heatmap::{self, heatmap_color};
 use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::{self, CanvasRenderer};
 use crate::scene::chunk_grid::ChunkGrid;
-use crate::shapes::polygon::Polygon;
-use crate::shapes::free_linear::FreeLinearShape;
+use crate::shapes::any_shape::AnyShape;
 use crate::shapes::shape::Shape as ShapeTrait;
 use crate::types::{DensityMode, DensitySource, EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
 use crate::file_io;
@@ -91,7 +90,7 @@ struct InitialFileWrap {
 pub struct FractalEditor {
     pub file_path: Option<String>,
 
-    pub shape: Option<ShapeWrapper>,
+    pub shape: Option<AnyShape>,
     pub pattern_data: Vec<ShapePatternData>,
     pub initial_data: Vec<ShapePatternData>,
     pub display_parent: bool,
@@ -147,41 +146,6 @@ pub struct FractalEditor {
 
     left_panel_version: u32,
     right_panel_version: u32,
-}
-
-pub enum ShapeWrapper {
-    Polygon(Polygon),
-    FreeLinear(FreeLinearShape),
-}
-
-impl ShapeWrapper {
-    pub fn get_transformed_points(&self, t: Pos2, r: f32, s: f32) -> Vec<Pos2> {
-        match self {
-            ShapeWrapper::Polygon(p) => p.get_transformed_points(t, r, s),
-            ShapeWrapper::FreeLinear(p) => p.get_transformed_points(t, r, s),
-        }
-    }
-
-    pub fn get_lines(&self, t: Pos2, r: f32, s: f32) -> Vec<[Pos2; 2]> {
-        match self {
-            ShapeWrapper::Polygon(p) => p.get_lines(t, r, s),
-            ShapeWrapper::FreeLinear(p) => p.get_lines(t, r, s),
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        match self {
-            ShapeWrapper::Polygon(_) => "Polygone",
-            ShapeWrapper::FreeLinear(_) => "Forme libre",
-        }
-    }
-
-    pub fn point_count(&self) -> usize {
-        match self {
-            ShapeWrapper::Polygon(p) => p.points().len(),
-            ShapeWrapper::FreeLinear(p) => p.points().len(),
-        }
-    }
 }
 
 impl Default for FractalEditor {
@@ -334,7 +298,7 @@ impl FractalEditor {
         self.individual_heatmap.clear();
     }
 
-    pub fn import_shape(&mut self, wrapper: ShapeWrapper) {
+    pub fn import_shape(&mut self, wrapper: AnyShape) {
         self.initial_data = vec![ShapePatternData {
             translate: pos2(0.0, 0.0),
             rotate: 0.0,
@@ -377,38 +341,8 @@ impl FractalEditor {
         Ok(())
     }
 
-    fn shape_to_data(&self) -> Option<shared::ModelData> {
-        self.shape.as_ref().map(|s| match s {
-            ShapeWrapper::Polygon(p) => shared::ModelData {
-                r#type: "Polygon".into(),
-                points: p.points().iter().map(|pt| [pt.x, pt.y]).collect(),
-                lines: Vec::new(),
-            },
-            ShapeWrapper::FreeLinear(s) => shared::ModelData {
-                r#type: "FreeLinear".into(),
-                points: s.points().iter().map(|pt| [pt.x, pt.y]).collect(),
-                lines: s.lines().to_vec(),
-            },
-        })
-    }
-
     fn load_shape_from_data(&mut self, data: &shared::ModelData) {
-        self.shape = Some(match data.r#type.as_str() {
-            "Polygon" | "cPolygon" => {
-                let pts = data.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
-                ShapeWrapper::Polygon(Polygon::from_points(pts))
-            }
-            _ => {
-                let mut s = FreeLinearShape::new();
-                for pt in &data.points {
-                    s.add_point(Pos2::new(pt[0], pt[1]));
-                }
-                for l in &data.lines {
-                    s.add_line_segment(l[0], l[1]);
-                }
-                ShapeWrapper::FreeLinear(s)
-            }
-        });
+        self.shape = Some(data.to_shape());
         self.canvas_renderer.rebuild_chunks = true;
     }
 
@@ -731,7 +665,7 @@ impl FractalEditor {
                 }
                 if ui.button("Enregistrer (ftlfw)").clicked() {
                     let data = FractalFile {
-                        shape: self.shape_to_data(),
+                        shape: self.shape.as_ref().map(shared::ModelData::from_shape),
                         pattern: PatternEditorData {
                             display_parent: self.display_parent,
                             patterns: self.pattern_data.clone(),
@@ -1202,7 +1136,7 @@ impl FractalEditor {
             ui.separator();
             ui.label("Données d'entrée:");
             if let Some(ref s) = self.shape {
-                ui.label(format!("Shape: {} ({} pts)", s.name(), s.point_count()));
+                ui.label(format!("Shape: {} ({} pts)", s.name(), s.points().len()));
             } else {
                 ui.label("Shape: (aucune)");
             }

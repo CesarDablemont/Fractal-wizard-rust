@@ -1,7 +1,10 @@
 use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::Camera;
-use crate::shapes::shape::apply_transform;
+use crate::shapes::any_shape::AnyShape;
+use crate::shapes::free_linear::FreeLinearShape;
+use crate::shapes::polygon::Polygon;
+use crate::shapes::shape::{apply_transform, Shape as _};
 use crate::gizmo::{self, GizmoHit};
 use crate::types::Line;
 
@@ -11,6 +14,32 @@ pub struct ModelData {
     pub points: Vec<[f32; 2]>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub lines: Vec<Line>,
+}
+
+impl ModelData {
+    pub fn from_shape(shape: &AnyShape) -> Self {
+        let points = shape.points().iter().map(|pt| [pt.x, pt.y]).collect();
+        match shape {
+            AnyShape::Polygon(_) => Self { r#type: "Polygon".into(), points, lines: Vec::new() },
+            AnyShape::FreeLinear(s) => Self { r#type: "FreeLinear".into(), points, lines: s.lines().to_vec() },
+        }
+    }
+
+    pub fn to_shape(&self) -> AnyShape {
+        let pts: Vec<Pos2> = self.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
+        match self.r#type.as_str() {
+            "Polygon" | "cPolygon" => AnyShape::Polygon(Polygon::from_points(pts)),
+            _ => {
+                // Sans lignes dans le fichier, les points sont reliés dans l'ordre.
+                let lines = if self.lines.is_empty() {
+                    (1..pts.len()).map(|i| [i - 1, i]).collect()
+                } else {
+                    self.lines.clone()
+                };
+                AnyShape::FreeLinear(FreeLinearShape::from_parts(pts, lines))
+            }
+        }
+    }
 }
 
 pub struct ShapeTransform {
@@ -354,4 +383,32 @@ pub fn render_transform_properties(
         *scale = sc;
     }
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_data_polygon_round_trip() {
+        let shape = AnyShape::Polygon(Polygon::from_points(vec![
+            Pos2::new(0.0, 0.0), Pos2::new(1.0, 0.0), Pos2::new(0.0, 1.0),
+        ]));
+        let back = ModelData::from_shape(&shape).to_shape();
+        assert!(matches!(back, AnyShape::Polygon(_)));
+        assert_eq!(back.points(), shape.points());
+        assert_eq!(back.lines(), shape.lines());
+    }
+
+    #[test]
+    fn model_data_free_linear_round_trip() {
+        let shape = AnyShape::FreeLinear(FreeLinearShape::from_parts(
+            vec![Pos2::new(0.0, 0.0), Pos2::new(1.0, 0.0), Pos2::new(2.0, 1.0)],
+            vec![[0, 1], [1, 2], [0, 2]],
+        ));
+        let back = ModelData::from_shape(&shape).to_shape();
+        assert!(matches!(back, AnyShape::FreeLinear(_)));
+        assert_eq!(back.points(), shape.points());
+        assert_eq!(back.lines(), shape.lines());
+    }
 }

@@ -2,6 +2,7 @@ use eframe::egui::{self, Color32, Pos2, Shape, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 use crate::scene::camera::{Camera, CameraSettings};
 use crate::scene::canvas::CanvasRenderer;
+use crate::shapes::any_shape::AnyShape;
 use crate::shapes::polygon::Polygon;
 use crate::shapes::free_linear::FreeLinearShape;
 use crate::shapes::shape::Shape as ShapeTrait;
@@ -13,7 +14,7 @@ use super::undo::UndoStack;
 
 #[derive(Clone)]
 struct FigureUndoState {
-    shape: Option<FigureShape>,
+    shape: Option<AnyShape>,
     figure_type: FigureType,
     selected_point: Option<usize>,
     equilateral_mode: bool,
@@ -22,13 +23,13 @@ struct FigureUndoState {
 
 pub struct FigureEditor {
     pub file_path: Option<String>,
-    pub transfer_shape: Option<super::fractal::ShapeWrapper>,
+    pub transfer_shape: Option<AnyShape>,
     pub transfer_to_pattern: Option<(Vec<Pos2>, Vec<Line>)>,
     pub transfer_to_initial: Option<(Vec<Pos2>, Vec<Line>)>,
 
     camera: Camera,
     canvas_renderer: CanvasRenderer,
-    shape: Option<FigureShape>,
+    shape: Option<AnyShape>,
     state: EditorState,
     figure_type: FigureType,
     selected_point: Option<usize>,
@@ -38,73 +39,6 @@ pub struct FigureEditor {
     equilateral_mode: bool,
     message: Option<shared::StatusMessage>,
     undo_stack: UndoStack<FigureUndoState>,
-}
-
-#[derive(Clone)]
-enum FigureShape {
-    Polygon(Polygon),
-    FreeLinear(FreeLinearShape),
-}
-
-impl FigureShape {
-    fn to_shape_wrapper(&self) -> super::fractal::ShapeWrapper {
-        match self {
-            FigureShape::Polygon(p) => super::fractal::ShapeWrapper::Polygon(p.clone()),
-            FigureShape::FreeLinear(s) => super::fractal::ShapeWrapper::FreeLinear(s.clone()),
-        }
-    }
-
-    fn points(&self) -> &[Pos2] {
-        match self {
-            FigureShape::Polygon(p) => p.points(),
-            FigureShape::FreeLinear(p) => p.points(),
-        }
-    }
-
-    fn add_point(&mut self, p: Pos2) {
-        match self {
-            FigureShape::Polygon(s) => s.add_point(p),
-            FigureShape::FreeLinear(s) => s.add_point(p),
-        }
-    }
-
-    fn remove_point(&mut self, idx: usize) {
-        match self {
-            FigureShape::Polygon(s) => s.remove_point(idx),
-            FigureShape::FreeLinear(s) => s.remove_point(idx),
-        }
-    }
-
-    fn hit_test(&self, world_pos: Pos2, point_size: f32) -> Option<usize> {
-        let half = point_size / 2.0;
-        self.points().iter().position(|&p| {
-            let dx = (p.x - world_pos.x).abs();
-            let dy = (p.y - world_pos.y).abs();
-            dx <= half && dy <= half
-        })
-    }
-
-    fn center(&self) -> Option<Pos2> {
-        let pts = self.points();
-        if pts.is_empty() {
-            return None;
-        }
-        let sum = pts.iter().fold(Vec2::ZERO, |acc, p| acc + p.to_vec2());
-        Some((sum / pts.len() as f32).to_pos2())
-    }
-
-    fn translate_all(&mut self, delta: Vec2) {
-        for p in self.points_mut_iter() {
-            *p += delta;
-        }
-    }
-
-    fn points_mut_iter(&mut self) -> impl Iterator<Item = &mut Pos2> {
-        match self {
-            FigureShape::Polygon(p) => p.points_mut().iter_mut(),
-            FigureShape::FreeLinear(s) => s.points_mut().iter_mut(),
-        }
-    }
 }
 
 /// Réglages du menu `Options`, mémorisés entre deux lancements.
@@ -206,21 +140,21 @@ impl FigureEditor {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Nouveau Polygone").clicked() {
                     self.push_undo();
-                    self.shape = Some(FigureShape::Polygon(Polygon::new()));
+                    self.shape = Some(AnyShape::Polygon(Polygon::new()));
                     self.figure_type = FigureType::Polygon;
                     self.state = EditorState::Add;
                     ui.close_menu();
                 }
                 if ui.button("Nouveau Libre").clicked() {
                     self.push_undo();
-                    self.shape = Some(FigureShape::FreeLinear(FreeLinearShape::new()));
+                    self.shape = Some(AnyShape::FreeLinear(FreeLinearShape::new()));
                     self.figure_type = FigureType::FreeLinear;
                     self.state = EditorState::Add;
                     ui.close_menu();
                 }
                 if ui.button("Nouveau Triangle équilatéral").clicked() {
                     self.push_undo();
-                    self.shape = Some(FigureShape::Polygon(Polygon::new()));
+                    self.shape = Some(AnyShape::Polygon(Polygon::new()));
                     self.figure_type = FigureType::Polygon;
                     self.equilateral_mode = true;
                     self.state = EditorState::Add;
@@ -233,22 +167,7 @@ impl FigureEditor {
                         match serde_json::from_str::<shared::ModelData>(&content) {
                             Ok(data) => {
                                 self.file_path = Some(path.display().to_string());
-                                self.shape = Some(match data.r#type.as_str() {
-                                    "Polygon" | "cPolygon" => {
-                                        let pts = data.points.iter().map(|pt| Pos2::new(pt[0], pt[1])).collect();
-                                        FigureShape::Polygon(Polygon::from_points(pts))
-                                    }
-                                    _ => {
-                                        let mut s = FreeLinearShape::new();
-                                        for pt in &data.points {
-                                            s.add_point(Pos2::new(pt[0], pt[1]));
-                                        }
-                                        for l in &data.lines {
-                                            s.add_line_segment(l[0], l[1]);
-                                        }
-                                        FigureShape::FreeLinear(s)
-                                    }
-                                });
+                                self.shape = Some(data.to_shape());
                                 shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure chargée"));
                             }
                             Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
@@ -258,18 +177,7 @@ impl FigureEditor {
                 }
                 if ui.button("Enregistrer").clicked() {
                     if let Some(ref shape) = self.shape {
-                        let data = match shape {
-                            FigureShape::Polygon(p) => shared::ModelData {
-                                r#type: "Polygon".into(),
-                                points: p.points().iter().map(|pt| [pt.x, pt.y]).collect(),
-                                lines: Vec::new(),
-                            },
-                            FigureShape::FreeLinear(s) => shared::ModelData {
-                                r#type: "FreeLinear".into(),
-                                points: s.points().iter().map(|pt| [pt.x, pt.y]).collect(),
-                                lines: s.lines().to_vec(),
-                            },
-                        };
+                        let data = shared::ModelData::from_shape(shape);
                         let json = serde_json::to_string_pretty(&data).unwrap();
                         let name = self.file_path.as_deref().and_then(|p| {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
@@ -306,20 +214,9 @@ impl FigureEditor {
                 .clicked()
             {
                 if let Some(ref shape) = self.shape {
-                    self.transfer_shape = Some(shape.to_shape_wrapper());
+                    self.transfer_shape = Some(shape.clone());
                     let pts = shape.points().to_vec();
-                    let lns = match shape {
-                        FigureShape::Polygon(_) => {
-                            if pts.len() >= 2 {
-                                let mut lines: Vec<Line> = (0..pts.len() - 1).map(|i| [i, i + 1]).collect();
-                                if pts.len() > 2 {
-                                    lines.push([pts.len() - 1, 0]);
-                                }
-                                lines
-                            } else { Vec::new() }
-                        }
-                        FigureShape::FreeLinear(s) => s.lines().to_vec(),
-                    };
+                    let lns = shape.lines().to_vec();
                     self.transfer_to_pattern = Some((pts.clone(), lns.clone()));
                     self.transfer_to_initial = Some((pts, lns));
                 }
@@ -356,7 +253,7 @@ impl FigureEditor {
                     }
                     prev_screen = Some(screen);
                 }
-                if matches!(shape, FigureShape::Polygon(_)) && points.len() > 2 {
+                if matches!(shape, AnyShape::Polygon(_)) && points.len() > 2 {
                     if let (Some(&first), Some(&last)) = (points.first(), points.last()) {
                         let s1 = self.camera.world_to_screen(first, canvas_center);
                         let s2 = self.camera.world_to_screen(last, canvas_center);
@@ -427,7 +324,7 @@ impl FigureEditor {
                                     best_offset = Vec2::new(dx, dy);
                                 }
                             }
-                            for p in shape.points_mut_iter() {
+                            for p in shape.points_mut() {
                                 *p += best_offset;
                             }
                         }
