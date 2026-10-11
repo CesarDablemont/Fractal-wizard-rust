@@ -107,8 +107,8 @@ impl PatternEditor {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Ouvrir (ptnfw)").clicked() {
                     self.list.push_undo();
-                    if let Some((_path, content)) = file_io::open_json("Ouvrir un pattern", "ptnfw") {
-                        match serde_json::from_str::<PatternFile>(&content) {
+                    match file_io::open_json("Ouvrir un pattern", "ptnfw") {
+                        Ok(Some((_path, content))) => match serde_json::from_str::<PatternFile>(&content) {
                             Ok(data) => {
                                 self.list.shapes = data.patterns;
                                 self.list.extra = data.display_parent;
@@ -116,6 +116,8 @@ impl PatternEditor {
                             }
                             Err(e) => self.list.error(e.to_string()),
                         }
+                        Ok(None) => {}
+                        Err(e) => self.list.error(e),
                     }
                     ui.close_menu();
                 }
@@ -125,8 +127,10 @@ impl PatternEditor {
                         patterns: self.list.shapes.clone(),
                     };
                     let json = serde_json::to_string_pretty(&data).unwrap();
-                    if file_io::save_json("Enregistrer le pattern", "ptnfw", &json) {
-                        self.list.info("Pattern enregistré");
+                    match file_io::save_json("Enregistrer le pattern", "ptnfw", &json) {
+                        Ok(Some(_)) => self.list.info("Pattern enregistré"),
+                        Ok(None) => {}
+                        Err(e) => self.list.error(e),
                     }
                     ui.close_menu();
                 }

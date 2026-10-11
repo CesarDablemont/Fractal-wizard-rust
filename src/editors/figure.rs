@@ -163,8 +163,8 @@ impl FigureEditor {
                 ui.separator();
                 if ui.button("Ouvrir").clicked() {
                     self.push_undo();
-                    if let Some((path, content)) = file_io::open_json("Ouvrir une figure", "firfw") {
-                        match serde_json::from_str::<shared::ModelData>(&content) {
+                    match file_io::open_json("Ouvrir une figure", "firfw") {
+                        Ok(Some((path, content))) => match serde_json::from_str::<shared::ModelData>(&content) {
                             Ok(data) => {
                                 self.file_path = Some(path.display().to_string());
                                 self.shape = Some(data.to_shape());
@@ -172,6 +172,8 @@ impl FigureEditor {
                             }
                             Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
                         }
+                        Ok(None) => {}
+                        Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e)),
                     }
                     ui.close_menu();
                 }
@@ -182,8 +184,10 @@ impl FigureEditor {
                         let name = self.file_path.as_deref().and_then(|p| {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                         }).unwrap_or("figure");
-                        if file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json) {
-                            shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée"));
+                        match file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json) {
+                            Ok(Some(_)) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée")),
+                            Ok(None) => {}
+                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e)),
                         }
                     }
                     ui.close_menu();
