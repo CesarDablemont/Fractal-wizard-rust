@@ -1,40 +1,24 @@
-use eframe::egui::{self, Align2, Color32, FontId, Id, pos2, Pos2, Shape, Vec2};
+mod animation;
+mod canvas;
+mod export;
+mod inputs;
+mod menu;
+mod panels;
+mod simulation;
+
+use eframe::egui::{self, Id, Vec2};
 use serde::{Deserialize, Serialize};
-use crate::fractal::generator::{self, FractalResult};
-use crate::fractal::hopping;
-use crate::fractal::random_walk::{self, RandomWalkStats, SimulationRunner};
-use crate::heatmap::{self, heatmap_color};
+use crate::fractal::generator::FractalResult;
 use crate::scene::camera::{Camera, CameraSettings};
-use crate::scene::canvas::{self, CanvasRenderer};
+use crate::scene::canvas::CanvasRenderer;
 use crate::scene::chunk_grid::ChunkGrid;
 use crate::shapes::any_shape::AnyShape;
-use crate::shapes::shape::Shape as ShapeTrait;
-use crate::types::{DensityMode, DensitySource, EditorState, Line, RandomWalkInfo, RenderMode, ShapePatternData, LoopMode};
-use crate::file_io;
+use crate::types::{EditorState, RenderMode, ShapePatternData};
 use super::shared;
-
-/// Temps de calcul accordé aux simulations à chaque frame : assez pour avancer
-/// vite, assez court pour que l'interface reste fluide (~60 fps).
-const SIMULATION_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
-
-/// Réglages de la fenêtre `Exporter (csv)`, mémorisés entre deux lancements.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ExportSettings {
-    pub points: bool,
-    pub lines: bool,
-    pub weights: bool,
-}
-
-impl Default for ExportSettings {
-    fn default() -> Self {
-        Self {
-            points: true,
-            lines: true,
-            weights: false,
-        }
-    }
-}
+use animation::AnimationState;
+use export::{ExportDialog, ExportSettings};
+use inputs::FractalInputs;
+use simulation::SimulationState;
 
 /// Réglages des menus `Simulation`, `Grille`, `Options` et de la fenêtre
 /// d'export, mémorisés entre deux lancements.
@@ -62,85 +46,24 @@ impl Default for FractalSettings {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-struct FractalFile {
-    shape: Option<shared::ModelData>,
-    pattern: PatternEditorData,
-    initial: Vec<ShapePatternData>,
-    iterations: usize,
-    regroup: bool,
-    add_delta: bool,
-    delta: [f32; 2],
-    delta_intervals: u32,
-    #[serde(default)]
-    density_sources: Vec<DensitySource>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct PatternEditorData {
-    display_parent: bool,
-    patterns: Vec<ShapePatternData>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct InitialFileWrap {
-    shapes: Vec<ShapePatternData>,
-}
-
 pub struct FractalEditor {
-    pub file_path: Option<String>,
+    file_path: Option<String>,
 
-    pub shape: Option<AnyShape>,
-    pub pattern_data: Vec<ShapePatternData>,
-    pub initial_data: Vec<ShapePatternData>,
-    pub display_parent: bool,
+    inputs: FractalInputs,
+    fractal: Option<FractalResult>,
+    simulation: SimulationState,
+    animation: AnimationState,
 
-    pub fractal: Option<FractalResult>,
-
-    pub simulations: Vec<RandomWalkInfo>,
-    pub stats: Option<RandomWalkStats>,
-    pub selected_simulation: Option<usize>,
-    pub simulation_count: u32,
-    pub min_steps: u64,
-    pub max_steps: u64,
-    pub allow_min: bool,
-    pub allow_max: bool,
-    pub beta: f32,
-    /// `beta` avec lequel les simulations affichées ont été lancées.
-    simulation_beta: Option<f32>,
-    simulation_runner: Option<SimulationRunner>,
-
-    pub global_heatmap: Vec<f32>,
-    pub individual_heatmap: Vec<f32>,
-    pub render_mode: RenderMode,
-    pub show_heat_score: bool,
-
-    pub current_step: usize,
-    pub is_playing: bool,
-    pub fps: f32,
-    pub loop_mode: LoopMode,
-    pub animation_time: std::time::Instant,
-    pub ascending: bool,
-
+    render_mode: RenderMode,
+    show_heat_score: bool,
     camera: Camera,
     canvas_renderer: CanvasRenderer,
     state: EditorState,
-    selected_points: Vec<usize>,
 
-    pub iterations: usize,
-    pub regroup: bool,
-    pub add_delta: bool,
-    pub delta: Vec2,
-    pub delta_intervals: u32,
-
-    pub density_sources: Vec<DensitySource>,
-    pub selected_density_source: Option<usize>,
+    selected_density_source: Option<usize>,
     dragging_density_source: Option<usize>,
 
-    pub export_show: bool,
-    pub export: ExportSettings,
-    /// `beta` des poids exportés, pré-rempli à l'ouverture de la fenêtre d'export.
-    export_beta: f32,
+    export: ExportDialog,
 
     message: Option<shared::StatusMessage>,
 
@@ -152,47 +75,18 @@ impl Default for FractalEditor {
     fn default() -> Self {
         Self {
             file_path: None,
-            shape: None,
-            pattern_data: Vec::new(),
-            initial_data: Vec::new(),
-            display_parent: false,
+            inputs: FractalInputs::default(),
             fractal: None,
-            simulations: Vec::new(),
-            stats: None,
-            selected_simulation: None,
-            simulation_count: 10,
-            min_steps: 100,
-            max_steps: 5000,
-            allow_min: true,
-            allow_max: true,
-            beta: 0.0,
-            simulation_beta: None,
-            simulation_runner: None,
-            global_heatmap: Vec::new(),
-            individual_heatmap: Vec::new(),
+            simulation: SimulationState::default(),
+            animation: AnimationState::default(),
             render_mode: RenderMode::Normal,
             show_heat_score: false,
-            current_step: 0,
-            is_playing: false,
-            fps: 60.0,
-            loop_mode: LoopMode::PlayOnceReset,
-            animation_time: std::time::Instant::now(),
-            ascending: true,
             camera: Camera::default(),
             canvas_renderer: CanvasRenderer::new(),
             state: EditorState::Mouse,
-            selected_points: Vec::new(),
-            iterations: 3,
-            regroup: true,
-            add_delta: false,
-            delta: Vec2::ZERO,
-            delta_intervals: 1000,
-            density_sources: Vec::new(),
             selected_density_source: None,
             dragging_density_source: None,
-            export_show: false,
-            export: ExportSettings::default(),
-            export_beta: 0.0,
+            export: ExportDialog::default(),
             message: None,
             left_panel_version: 0,
             right_panel_version: 0,
@@ -202,223 +96,117 @@ impl Default for FractalEditor {
 
 impl FractalEditor {
     pub fn settings(&self) -> FractalSettings {
+        let params = &self.simulation.params;
+        let inputs = &self.inputs;
         FractalSettings {
-            simulation_count: self.simulation_count,
-            min_steps: self.min_steps,
-            max_steps: self.max_steps,
-            allow_min: self.allow_min,
-            allow_max: self.allow_max,
-            beta: self.beta,
-            iterations: self.iterations,
-            regroup: self.regroup,
-            display_parent: self.display_parent,
-            add_delta: self.add_delta,
-            delta: [self.delta.x, self.delta.y],
+            simulation_count: params.count,
+            min_steps: params.min_steps,
+            max_steps: params.max_steps,
+            allow_min: params.allow_min,
+            allow_max: params.allow_max,
+            beta: params.beta,
+            iterations: inputs.iterations,
+            regroup: inputs.regroup,
+            display_parent: inputs.display_parent,
+            add_delta: inputs.add_delta,
+            delta: [inputs.delta.x, inputs.delta.y],
             camera: self.camera.settings(),
-            export: self.export.clone(),
+            export: self.export.settings.clone(),
         }
     }
 
     pub fn apply_settings(&mut self, settings: &FractalSettings) {
-        self.simulation_count = settings.simulation_count;
-        self.min_steps = settings.min_steps;
-        self.max_steps = settings.max_steps;
-        self.allow_min = settings.allow_min;
-        self.allow_max = settings.allow_max;
-        self.beta = settings.beta;
-        self.iterations = settings.iterations;
-        self.regroup = settings.regroup;
-        self.display_parent = settings.display_parent;
-        self.add_delta = settings.add_delta;
-        self.delta = Vec2::from(settings.delta);
+        let params = &mut self.simulation.params;
+        params.count = settings.simulation_count;
+        params.min_steps = settings.min_steps;
+        params.max_steps = settings.max_steps;
+        params.allow_min = settings.allow_min;
+        params.allow_max = settings.allow_max;
+        params.beta = settings.beta;
+        let inputs = &mut self.inputs;
+        inputs.iterations = settings.iterations;
+        inputs.regroup = settings.regroup;
+        inputs.display_parent = settings.display_parent;
+        inputs.add_delta = settings.add_delta;
+        inputs.delta = Vec2::from(settings.delta);
         self.camera.apply_settings(&settings.camera);
-        self.export = settings.export.clone();
+        self.export.settings = settings.export.clone();
     }
 
-    fn fractal_points(&self) -> &[Pos2] {
-        self.fractal.as_ref().map(|f| f.points.as_slice()).unwrap_or(&[])
-    }
-
-    fn fractal_lines(&self) -> &[Line] {
-        self.fractal.as_ref().map(|f| f.lines.as_slice()).unwrap_or(&[])
-    }
-
-    pub fn generate(&mut self) {
-        let Some(ref shape) = self.shape else { return };
-        if self.pattern_data.is_empty() || self.initial_data.is_empty() {
-            return;
-        }
-
-        let pre_scale = if self.pattern_data.is_empty() {
-            1.0
-        } else {
-            self.pattern_data[0].scale.powf(self.iterations as f32)
-        };
-        let mut initial_scaled = self.initial_data.clone();
-        for s in &mut initial_scaled {
-            s.translate.x *= pre_scale;
-            s.translate.y *= pre_scale;
-            s.scale *= pre_scale;
-        }
-
-        let get_points = |t: Pos2, r: f32, s: f32| -> Vec<Pos2> {
-            shape.get_transformed_points(t, r, s)
-        };
-        let get_lines = |t: Pos2, r: f32, s: f32| -> Vec<[Pos2; 2]> {
-            shape.get_lines(t, r, s)
-        };
-
-        let start = std::time::Instant::now();
-        let result = generator::generate_fractal(&generator::FractalConfig {
-            get_points: &get_points,
-            get_lines: &get_lines,
-            pattern: &self.pattern_data,
-            initial: &initial_scaled,
-            iterations: self.iterations,
-            regroup: self.regroup,
-            display_parent: self.display_parent,
-            delta_radius: if self.add_delta { self.delta.x.abs() } else { 0.0 },
-            density_sources: &self.density_sources,
-        });
-        let elapsed = start.elapsed();
-
-        shared::set_status_message(&mut self.message, shared::StatusMessage::info(format!("Générée en {elapsed:.2?}")));
-
-        self.fractal = Some(result);
-        self.canvas_renderer.rebuild_chunks = true;
-        self.canvas_renderer.chunk_grid = None;
-        self.canvas_renderer.mesh_dirty = true;
-        self.simulations.clear();
-        self.simulation_beta = None;
-        self.selected_simulation = None;
-        self.current_step = 0;
-        self.is_playing = false;
-        self.stats = None;
-        self.global_heatmap.clear();
-        self.individual_heatmap.clear();
-    }
-
-    pub fn import_shape(&mut self, wrapper: AnyShape) {
-        self.initial_data = vec![ShapePatternData {
-            translate: pos2(0.0, 0.0),
-            rotate: 0.0,
-            scale: 1.0,
-        }];
-        self.shape = Some(wrapper);
+    pub fn import_shape(&mut self, shape: AnyShape) {
+        self.inputs.import_shape(shape);
         self.canvas_renderer.rebuild_chunks = true;
     }
 
     pub fn import_pattern_data(&mut self, data: Vec<ShapePatternData>) {
-        self.pattern_data = data;
+        self.inputs.pattern_data = data;
     }
 
     pub fn import_initial_data(&mut self, data: Vec<ShapePatternData>) {
-        self.initial_data = data;
+        self.inputs.initial_data = data;
     }
 
-    fn import_firfw(&mut self, content: &str) -> Result<(), String> {
-        let data: shared::ModelData = serde_json::from_str(content).map_err(|e| e.to_string())?;
-        self.load_shape_from_data(&data);
+    /// Vrai tant qu'une animation est jouée ou qu'une simulation tourne.
+    pub fn needs_repaint(&self) -> bool {
+        self.animation.is_playing() || self.simulation.is_pending()
+    }
+
+    fn info(&mut self, text: impl Into<String>) {
+        shared::set_status_message(&mut self.message, shared::StatusMessage::info(text));
+    }
+
+    fn error(&mut self, text: impl Into<String>) {
+        shared::set_status_message(&mut self.message, shared::StatusMessage::error(text));
+    }
+
+    fn fractal_points_count(&self) -> usize {
+        self.fractal.as_ref().map_or(0, |f| f.points.len())
+    }
+
+    /// Nom du fichier ouvert sans extension, `fractale` à défaut.
+    fn file_stem(&self) -> &str {
+        self.file_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("fractale")
+    }
+
+    /// Remplace la fractale : les simulations faites sur l'ancienne n'ont plus de sens.
+    fn set_fractal(&mut self, fractal: Option<FractalResult>) {
+        self.fractal = fractal;
         self.canvas_renderer.rebuild_chunks = true;
-        Ok(())
+        self.canvas_renderer.chunk_grid = None;
+        self.canvas_renderer.mesh_dirty = true;
+        self.simulation.reset();
+        self.animation.reset();
     }
 
-    fn import_ptnfw(&mut self, content: &str) -> Result<(), String> {
-        let data: PatternEditorData = serde_json::from_str(content).map_err(|e| e.to_string())?;
-        self.pattern_data = data.patterns;
-        self.display_parent = data.display_parent;
-        Ok(())
+    fn generate(&mut self) {
+        let start = std::time::Instant::now();
+        let Some(result) = self.inputs.generate() else { return };
+        let elapsed = start.elapsed();
+        self.info(format!("Générée en {elapsed:.2?}"));
+        self.set_fractal(Some(result));
     }
 
-    fn import_filfw(&mut self, content: &str) -> Result<(), String> {
-        // Try full InitialFile first, then fall back to bare array
-        if let Ok(data) = serde_json::from_str::<InitialFileWrap>(content) {
-            self.initial_data = data.shapes;
-        } else {
-            let data: Vec<ShapePatternData> = serde_json::from_str(content).map_err(|e| e.to_string())?;
-            self.initial_data = data;
-        }
-        Ok(())
-    }
-
-    fn load_shape_from_data(&mut self, data: &shared::ModelData) {
-        self.shape = Some(data.to_shape());
-        self.canvas_renderer.rebuild_chunks = true;
-    }
-
-    pub fn start_simulation(&mut self, start_idx: usize) {
-        let points = self.fractal_points().to_vec();
-        let lines = self.fractal_lines().to_vec();
-        if points.is_empty() || lines.is_empty() {
+    fn start_simulation(&mut self, start_idx: usize) {
+        let Some(fractal) = &self.fractal else { return };
+        if fractal.points.is_empty() || fractal.lines.is_empty() {
             return;
         }
-
-        self.simulations.clear();
-        self.simulation_beta = Some(self.beta);
-        self.stats = None;
-        self.selected_simulation = None;
-        self.global_heatmap.clear();
-        self.individual_heatmap.clear();
-        self.simulation_runner = Some(SimulationRunner::new(
-            &points,
-            &lines,
-            start_idx,
-            self.simulation_count,
-            if self.allow_min { self.min_steps } else { 0 },
-            if self.allow_max { self.max_steps } else { u64::MAX },
-            self.beta,
-        ));
+        self.simulation.start(&fractal.points, &fractal.lines, start_idx);
+        self.animation.reset();
     }
 
-    pub fn simulation_pending(&self) -> bool {
-        self.simulation_runner.is_some()
-    }
-
-    /// Exécute autant de simulations que possible dans le budget d'une frame,
-    /// puis met à jour statistiques et heatmap une seule fois pour tout le lot.
     fn advance_simulation(&mut self) {
-        let points_count = self.fractal_points().len();
-        let runner = match &mut self.simulation_runner {
-            Some(runner) => runner,
-            None => return,
-        };
-        if runner.is_done() {
-            self.simulation_runner = None;
-            return;
+        if let Some(error) = self.simulation.advance(self.fractal_points_count()) {
+            self.error(error);
         }
+    }
 
-        let frame_start = std::time::Instant::now();
-        while !runner.is_done() && frame_start.elapsed() < SIMULATION_FRAME_BUDGET {
-            let sim = runner.run_next();
-            if sim.timed_out {
-                let n = self.simulations.len() + 1;
-                let steps = sim.steps();
-                shared::set_status_message(
-                    &mut self.message,
-                    shared::StatusMessage::error(format!(
-                        "Simulation lente : la simulation {n} a dépassé la limite d'1s ({steps} étapes, marquée Pas fini)"
-                    )),
-                );
-            }
-            self.simulations.push(sim);
-        }
-
-        self.stats = Some(random_walk::calculate_stats(&self.simulations, self.simulation_count));
-        self.global_heatmap = heatmap::normalize(runner.visits());
-        if self.selected_simulation.is_none() {
-            self.selected_simulation = Some(0);
-            self.individual_heatmap = heatmap::calculate_individual_heatmap(points_count, &self.simulations[0]);
-        }
-
-        if runner.is_done() {
-            let max_time = runner.max_simulation_time();
-            let total_time = runner.total_simulation_time();
-            self.simulation_runner = None;
-            if let Some(stats) = &mut self.stats {
-                stats.max_simulation_time = max_time;
-                stats.total_simulation_time = total_time;
-            }
-        }
+    fn select_simulation(&mut self, idx: usize) {
+        self.simulation.select(idx, self.fractal_points_count());
+        self.animation.reset();
     }
 
     fn update_chunks(&mut self) {
@@ -483,795 +271,32 @@ impl FractalEditor {
         egui::TopBottomPanel::bottom("fractal_player")
             .min_height(40.0)
             .show(ctx, |ui| {
-                self.render_player(ui);
+                let max_step = self.simulation.selected().map(|sim| sim.steps());
+                self.animation.show(ui, max_step);
             });
 
         self.render_export_window(ctx);
     }
 
-    fn render_export_window(&mut self, ctx: &egui::Context) {
-        if !self.export_show {
-            return;
+    /// `beta` par défaut des poids exportés et sa provenance : celui des
+    /// simulations affichées s'il y en a, sinon le réglage courant.
+    fn default_export_beta(&self) -> (f32, &'static str) {
+        match self.simulation.displayed_beta() {
+            Some(beta) => (beta, "simulations affichées"),
+            None => (self.simulation.params.beta, "réglage Simulation"),
         }
-        egui::Window::new("Exporter (csv)")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
-            .show(ctx, |ui| {
-                ui.label("Éléments à exporter :");
-                ui.checkbox(&mut self.export.points, "Points (x, y)");
-                ui.checkbox(&mut self.export.lines, "Liaisons (i, j)");
-                ui.add_enabled_ui(self.export.lines, |ui| {
-                    ui.indent("export_weights", |ui| {
-                        ui.checkbox(&mut self.export.weights, "avec poids t (i, j, t)").on_hover_text(
-                            "Hopping relatif t = exp(-beta * (d / d0 - 1)) par liaison, d0 = longueur médiane des liaisons.",
-                        );
-                    });
-                });
-                if self.export.lines && self.export.weights {
-                    self.render_export_beta(ui);
-                }
-
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.button("Exporter").clicked() {
-                        self.export_show = false;
-                        self.export_csv();
-                    }
-                    if ui.button("Annuler").clicked() {
-                        self.export_show = false;
-                    }
-                });
-            });
-    }
-
-    /// `beta` par défaut des poids exportés : celui des simulations affichées
-    /// s'il y en a, sinon le réglage courant.
-    fn default_export_beta(&self) -> f32 {
-        self.simulation_beta.unwrap_or(self.beta)
     }
 
     fn open_export_window(&mut self) {
-        self.export_beta = self.default_export_beta();
-        self.export_show = true;
+        let (beta, _) = self.default_export_beta();
+        self.export.open(beta);
     }
 
-    fn render_export_beta(&mut self, ui: &mut egui::Ui) {
-        let default_beta = self.default_export_beta();
-        ui.indent("export_beta", |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Beta (distance):");
-                ui.add(egui::DragValue::new(&mut self.export_beta).speed(0.1).range(0.0..=10.0));
-                let source = if self.simulation_beta.is_some() {
-                    "simulations affichées"
-                } else {
-                    "réglage Simulation"
-                };
-                if ui
-                    .add_enabled(self.export_beta != default_beta, egui::Button::new("↺"))
-                    .on_hover_text(format!("Revenir à {default_beta:.2} ({source})"))
-                    .clicked()
-                {
-                    self.export_beta = default_beta;
-                }
-            });
-            if self.export_beta == 0.0 {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "beta = 0 : tous les t valent 1 (liaisons uniformes)",
-                );
-            }
-        });
-    }
-
-    fn export_csv(&mut self) {
-        let Some(fractal) = self.fractal.as_ref() else {
-            shared::set_status_message(
-                &mut self.message,
-                shared::StatusMessage::info("Aucune fractale à exporter"),
-            );
-            return;
-        };
-        if !self.export.points && !self.export.lines {
-            shared::set_status_message(
-                &mut self.message,
-                shared::StatusMessage::error("Sélectionnez au moins un élément à exporter"),
-            );
-            return;
-        }
-
-        let stem = self
-            .file_path
-            .as_deref()
-            .and_then(|p| std::path::Path::new(p).file_stem().and_then(|s| s.to_str()))
-            .unwrap_or("fractale")
-            .to_string();
-
-        let Some(base) = file_io::pick_csv_base("Exporter (csv)", &stem) else {
-            return;
-        };
-
-        let beta = self.export_beta;
-        let use_weights = self.export.lines && self.export.weights;
-
-        // Même graphe que celui parcouru par le marcheur ivre.
-        let graph = generator::merge_graph(&fractal.points, &fractal.lines);
-        let mut files: Vec<(std::path::PathBuf, String, String)> = Vec::new();
-        if self.export.points {
-            files.push((
-                file_io::csv_path(&base, "_points"),
-                file_io::points_to_csv(&graph.points),
-                format!("{} points", graph.points.len()),
-            ));
-        }
-        if self.export.lines {
-            let weights = use_weights.then(|| hopping::edge_weights(&graph.points, &graph.lines, beta));
-            let label = if use_weights {
-                format!("{} liaisons (t, beta = {beta:.2})", graph.lines.len())
-            } else {
-                format!("{} liaisons", graph.lines.len())
-            };
-            let csv = file_io::edges_to_csv(&graph.lines, weights.as_deref());
-            files.push((file_io::csv_path(&base, "_edges"), csv, label));
-        }
-
-        let mut exported: Vec<String> = Vec::new();
-        for (path, csv, label) in files {
-            if let Err(err) = std::fs::write(&path, csv) {
-                shared::set_status_message(
-                    &mut self.message,
-                    shared::StatusMessage::error(format!("Échec de l'écriture de {} : {err}", path.display())),
-                );
-                return;
-            }
-            exported.push(label);
-        }
-        shared::set_status_message(
-            &mut self.message,
-            shared::StatusMessage::info(format!("Exporté : {}", exported.join(", "))),
-        );
-    }
-
-    fn render_menu(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.menu_button("Fichier", |ui| {
-                if ui.button("Ouvrir (ftlfw)").clicked() {
-                    if let Some((path, content)) = file_io::open_json("Ouvrir une fractale", "ftlfw") {
-                        match serde_json::from_str::<FractalFile>(&content) {
-                            Ok(data) => {
-                                self.file_path = Some(path.display().to_string());
-                                if let Some(sd) = data.shape {
-                                    self.load_shape_from_data(&sd);
-                                } else {
-                                    self.shape = None;
-                                }
-                                self.pattern_data = data.pattern.patterns;
-                                self.display_parent = data.pattern.display_parent;
-                                self.initial_data = data.initial;
-                                self.iterations = data.iterations;
-                                self.regroup = data.regroup;
-                                self.add_delta = data.add_delta;
-                                self.delta = Vec2::new(data.delta[0], data.delta[1]);
-                                self.delta_intervals = data.delta_intervals;
-                                self.density_sources = data.density_sources;
-                                self.selected_density_source = None;
-                                shared::set_status_message(&mut self.message, shared::StatusMessage::info("Fractale chargée"));
-                                self.canvas_renderer.rebuild_chunks = true;
-                            }
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
-                        }
-                    }
-                    ui.close_menu();
-                }
-                if ui.button("Enregistrer (ftlfw)").clicked() {
-                    let data = FractalFile {
-                        shape: self.shape.as_ref().map(shared::ModelData::from_shape),
-                        pattern: PatternEditorData {
-                            display_parent: self.display_parent,
-                            patterns: self.pattern_data.clone(),
-                        },
-                        initial: self.initial_data.clone(),
-                        iterations: self.iterations,
-                        regroup: self.regroup,
-                        add_delta: self.add_delta,
-                        delta: [self.delta.x, self.delta.y],
-                        delta_intervals: self.delta_intervals,
-                        density_sources: self.density_sources.clone(),
-                    };
-                    let json = serde_json::to_string_pretty(&data).unwrap();
-                    let name = self.file_path.as_deref().and_then(|p| {
-                        std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
-                    }).unwrap_or("fractale");
-                    if file_io::save_json_path("Enregistrer la fractale", "ftlfw", &format!("{name}.ftlfw"), &json) {
-                        shared::set_status_message(&mut self.message, shared::StatusMessage::info("Fractale enregistrée"));
-                    }
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Importer figure (firfw)").clicked() {
-                    if let Some((_path, content)) = file_io::open_json("Importer une figure", "firfw") {
-                        match self.import_firfw(&content) {
-                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure importée")),
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
-                        }
-                    }
-                    ui.close_menu();
-                }
-                if ui.button("Importer pattern (ptnfw)").clicked() {
-                    if let Some((_path, content)) = file_io::open_json("Importer un pattern", "ptnfw") {
-                        match self.import_ptnfw(&content) {
-                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Pattern importé")),
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
-                        }
-                    }
-                    ui.close_menu();
-                }
-                if ui.button("Importer initiale (filfw)").clicked() {
-                    if let Some((_path, content)) = file_io::open_json("Importer une figure initiale", "filfw") {
-                        match self.import_filfw(&content) {
-                            Ok(()) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure initiale importée")),
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e.to_string())),
-                        }
-                    }
-                    ui.close_menu();
-                }
-                ui.separator();
-                if ui.button("Exporter (csv)").clicked() {
-                    self.open_export_window();
-                    ui.close_menu();
-                }
-            });
-
-            if ui.button("Générer").clicked() {
-                self.generate();
-            }
-
-            ui.separator();
-
-            ui.menu_button("Simulation", |ui| {
-                ui.checkbox(&mut self.allow_min, "Min steps");
-                if self.allow_min {
-                    ui.add(egui::DragValue::new(&mut self.min_steps).range(1..=1_000_000));
-                }
-                ui.checkbox(&mut self.allow_max, "Max steps");
-                if self.allow_max {
-                    ui.add(egui::DragValue::new(&mut self.max_steps).range(1..=1_000_000));
-                }
-                ui.add(egui::DragValue::new(&mut self.simulation_count).range(1..=10000).prefix("Nb simulations: "));
-                ui.horizontal(|ui| {
-                    ui.label("Beta (distance):");
-                    ui.add(egui::DragValue::new(&mut self.beta).speed(0.1).range(0.0..=10.0));
-                });
-
-                if ui.button("Sélectionner point de départ").clicked() {
-                    self.state = EditorState::SelectPointSimulation;
-                    ui.close_menu();
-                }
-            });
-
-            ui.menu_button("Génération", |ui| {
-                ui.add(egui::Slider::new(&mut self.iterations, 1..=10).text("Itérations"));
-                ui.checkbox(&mut self.regroup, "Regrouper points");
-                ui.checkbox(&mut self.display_parent, "Afficher parents");
-                ui.checkbox(&mut self.add_delta, "Incertitude");
-                if self.add_delta {
-                    ui.add(egui::DragValue::new(&mut self.delta.x).speed(0.1).prefix("Rayon:"));
-                }
-
-                ui.separator();
-                ui.label("Champ de densité");
-                if ui.button("+ Ajouter source").clicked() {
-                    self.density_sources.push(DensitySource::default());
-                    self.selected_density_source = Some(self.density_sources.len() - 1);
-                }
-                let mut remove_idx = None;
-                for (i, src) in self.density_sources.iter_mut().enumerate() {
-                    ui.horizontal(|ui| {
-                        let mode_label = match src.mode {
-                            DensityMode::Displacement => "",
-                            DensityMode::Contraction => " [C]",
-                            DensityMode::Iteration => " [I]",
-                        };
-                        let label = if src.force >= 0.0 {
-                            format!("Attraction{}{}", mode_label, i + 1)
-                        } else {
-                            format!("Répulsion{}{}", mode_label, i + 1)
-                        };
-                        if ui.selectable_label(self.selected_density_source == Some(i), &label).clicked() {
-                            self.selected_density_source = Some(i);
-                        }
-                        if ui.small_button("x").clicked() {
-                            remove_idx = Some(i);
-                        }
-                    });
-                    if self.selected_density_source == Some(i) {
-                        ui.indent("density_src_indent", |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("Mode:");
-                                egui::ComboBox::from_id_salt(format!("density_mode_{i}"))
-                                    .selected_text(src.mode.label())
-                                    .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut src.mode, DensityMode::Displacement, DensityMode::Displacement.label());
-                                        ui.selectable_value(&mut src.mode, DensityMode::Contraction, DensityMode::Contraction.label());
-                                        ui.selectable_value(&mut src.mode, DensityMode::Iteration, DensityMode::Iteration.label());
-                                    });
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("X:");
-                                ui.add(egui::DragValue::new(&mut src.position.x).speed(1.0));
-                                ui.label("Y:");
-                                ui.add(egui::DragValue::new(&mut src.position.y).speed(1.0));
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Rayon:");
-                                ui.add(egui::DragValue::new(&mut src.radius).speed(1.0).range(1.0..=10000.0));
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Force:");
-                                ui.add(egui::DragValue::new(&mut src.force).speed(1.0).range(-100.0..=100.0));
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label("Exposant:");
-                                ui.add(egui::DragValue::new(&mut src.exponent).speed(0.1).range(0.1..=5.0));
-                            });
-                        });
-                    }
-                }
-                if let Some(idx) = remove_idx {
-                    self.density_sources.remove(idx);
-                    self.selected_density_source = None;
-                }
-
-                if self.fractal.is_some() {
-                    ui.separator();
-                    if ui.button("Reset").clicked() {
-                        self.fractal = None;
-                        self.simulations.clear();
-                        self.simulation_beta = None;
-                        self.stats = None;
-                        self.global_heatmap.clear();
-                        self.individual_heatmap.clear();
-                    }
-                }
-            });
-
-            ui.menu_button("Options", |ui| {
-                shared::view_options(ui, &mut self.camera);
-                shared::points_option(ui, &mut self.camera);
-                ui.checkbox(&mut self.camera.display_lines, "Lignes");
-            });
-
-            shared::render_status_message(ui, &mut self.message);
-        });
-    }
-
-    fn render_outliner(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Simulations");
-
-        if self.simulations.is_empty() {
-            if let Some(runner) = &self.simulation_runner {
-                let (done, total) = runner.progress();
-                ui.label(format!("Simulation en cours : {done}/{total}"));
-            } else {
-                ui.label("Aucune simulation");
-            }
-            return;
-        }
-
-        if let Some(runner) = &self.simulation_runner {
-            let (done, total) = runner.progress();
-            ui.label(format!("Simulation en cours : {done}/{total}"));
-        }
-
-        if self.selected_simulation.is_some() && !self.global_heatmap.is_empty() {
-            ui.horizontal(|ui| {
-                ui.label("Rendu:");
-                egui::ComboBox::from_id_salt("render_mode")
-                    .selected_text(match self.render_mode {
-                        RenderMode::Normal => "Normal",
-                        RenderMode::GlobalHeatMap => "Heatmap globale",
-                        RenderMode::IndividualHeatMap => "Heatmap individuelle",
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.render_mode, RenderMode::Normal, "Normal");
-                        ui.selectable_value(&mut self.render_mode, RenderMode::GlobalHeatMap, "Heatmap globale");
-                        ui.selectable_value(&mut self.render_mode, RenderMode::IndividualHeatMap, "Heatmap individuelle");
-                    });
-            });
-            if self.render_mode != RenderMode::Normal {
-                ui.checkbox(&mut self.show_heat_score, "Afficher score");
-            }
-            ui.separator();
-        }
-
-        let mut clicked: Option<usize> = None;
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (i, sim) in self.simulations.iter().enumerate() {
-                let label = format!(
-                    "Sim {} : {} étapes, {}",
-                    i + 1,
-                    sim.steps(),
-                    if sim.is_random_walk_done { "Fini" } else { "Pas fini" }
-                );
-                let selected = self.selected_simulation == Some(i);
-                if ui.selectable_label(selected, &label).clicked() {
-                    clicked = Some(i);
-                }
-            }
-        });
-
-        if let Some(idx) = clicked {
-            self.selected_simulation = Some(idx);
-            self.individual_heatmap = heatmap::calculate_individual_heatmap(
-                self.fractal_points().len(),
-                &self.simulations[idx],
-            );
-            self.current_step = 0;
-            self.is_playing = false;
-        }
-    }
-
-    fn render_canvas(&mut self, ui: &mut egui::Ui) {
-        let (response, painter) = ui.allocate_painter(
-            ui.available_size(),
-            egui::Sense::click_and_drag(),
-        );
-
-        let canvas_rect = response.rect;
-        let canvas_center = canvas_rect.center();
-        let mut shapes: Vec<Shape> = Vec::new();
-
-        shared::handle_zoom_scroll(&response, ui, &mut self.camera, canvas_center);
-        shared::handle_middle_pan(&response, ui, &mut self.camera);
-
-        let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
-        let pointer_released = ui.input(|i| i.pointer.any_released());
-
-        // Start drag density source on press
-        if pointer_pressed && self.dragging_density_source.is_none() {
-            if let Some(mouse) = ui.input(|i| i.pointer.interact_pos()) {
-                let world = self.camera.screen_to_world(mouse, canvas_center);
-                let hit_radius = 15.0 / self.camera.zoom;
-                for (i, src) in self.density_sources.iter().enumerate() {
-                    let dx = src.position.x - world.x;
-                    let dy = src.position.y - world.y;
-                    if (dx * dx + dy * dy) <= hit_radius * hit_radius {
-                        self.selected_density_source = Some(i);
-                        self.dragging_density_source = Some(i);
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Continue drag density source
-        if let Some(idx) = self.dragging_density_source {
-            if pointer_released {
-                self.dragging_density_source = None;
-            } else if response.dragged_by(egui::PointerButton::Primary) {
-                let delta = ui.input(|i| i.pointer.delta());
-                if delta != Vec2::ZERO {
-                    let world_delta = self.camera.screen_delta_to_world(delta);
-                    self.density_sources[idx].position += world_delta;
-                }
-            }
-        }
-
-        if response.dragged_by(egui::PointerButton::Primary) && self.state == EditorState::Mouse && self.selected_points.is_empty() && self.dragging_density_source.is_none() {
-            self.camera.pan(ui.input(|i| i.pointer.delta()));
-        }
-
-        self.canvas_renderer.draw_grid(&self.camera, canvas_rect, &mut shapes);
-        self.canvas_renderer.draw_origin(&self.camera, canvas_rect, &mut shapes);
-        {
-            let fractal = self.fractal.as_ref();
-            let points = fractal.map(|f| f.points.as_slice()).unwrap_or(&[]);
-            let lines = fractal.map(|f| f.lines.as_slice()).unwrap_or(&[]);
-            let point_scale = fractal.map(|f| f.point_scale.as_slice()).unwrap_or(&[]);
-
-            if self.camera.display_lines && !lines.is_empty() {
-                self.canvas_renderer.draw_fractal_lines(
-                    &self.camera, canvas_rect, points, lines, Color32::YELLOW, &mut shapes,
-                );
-            }
-
-            if !points.is_empty() {
-                let highlight = if let Some(sim_idx) = self.selected_simulation {
-                    if self.current_step < self.simulations[sim_idx].walk_steps.len() {
-                        Some(self.simulations[sim_idx].walk_steps[self.current_step])
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                match self.render_mode {
-                    RenderMode::Normal => {
-                        self.canvas_renderer.draw_fractal_points(
-                            &self.camera, canvas_rect,
-                            &canvas::FractalDrawData { points, point_scale, colors: &[], highlight },
-                            &mut shapes,
-                        );
-                    }
-                    RenderMode::GlobalHeatMap | RenderMode::IndividualHeatMap => {
-                        let heatmap = match self.render_mode {
-                            RenderMode::GlobalHeatMap => &self.global_heatmap,
-                            _ => &self.individual_heatmap,
-                        };
-                        let colors: Vec<Option<Color32>> = heatmap.iter().map(|&s| Some(heatmap_color(s))).collect();
-                        self.canvas_renderer.draw_fractal_points(
-                            &self.camera, canvas_rect,
-                            &canvas::FractalDrawData { points, point_scale, colors: &colors, highlight },
-                            &mut shapes,
-                        );
-
-                        if self.show_heat_score {
-                            let center = canvas_rect.center();
-                            if heatmap.len() == points.len() {
-                                for (i, &score) in heatmap.iter().enumerate() {
-                                    let screen = self.camera.world_to_screen(points[i], center);
-                                    let text = format!("{score:.2}");
-                                    painter.text(
-                                        screen + Vec2::new(0.0, self.camera.point_size / 2.0 + 2.0),
-                                        Align2::CENTER_TOP,
-                                        text,
-                                        FontId::proportional(10.0),
-                                        Color32::WHITE,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if response.clicked_by(egui::PointerButton::Primary) && self.state == EditorState::SelectPointSimulation {
-                let picked = ui.input(|i| i.pointer.interact_pos()).and_then(|mouse| {
-                    canvas::pick_fractal_point(&self.camera, points, point_scale, mouse, canvas_center)
-                });
-                if let Some(i) = picked {
-                    self.start_simulation(i);
-                    self.state = EditorState::Mouse;
-                }
-            }
-        }
-
-        for (i, src) in self.density_sources.iter().enumerate() {
-            let center = self.camera.world_to_screen(src.position, canvas_center);
-            let screen_radius = src.radius * self.camera.zoom;
-            let (fill, stroke_color, label) = match (src.mode, src.force >= 0.0) {
-                (DensityMode::Displacement, true) => (
-                    Color32::from_rgba_premultiplied(0, 180, 0, 20),
-                    Color32::from_rgba_premultiplied(0, 180, 0, 60),
-                    format!("A{}", i + 1),
-                ),
-                (DensityMode::Displacement, false) => (
-                    Color32::from_rgba_premultiplied(180, 0, 0, 20),
-                    Color32::from_rgba_premultiplied(180, 0, 0, 60),
-                    format!("R{}", i + 1),
-                ),
-                (DensityMode::Contraction, true) => (
-                    Color32::from_rgba_premultiplied(0, 120, 255, 20),
-                    Color32::from_rgba_premultiplied(0, 120, 255, 60),
-                    format!("C{}", i + 1),
-                ),
-                (DensityMode::Contraction, false) => (
-                    Color32::from_rgba_premultiplied(255, 120, 0, 20),
-                    Color32::from_rgba_premultiplied(255, 120, 0, 60),
-                    format!("D{}", i + 1),
-                ),
-                (DensityMode::Iteration, true) => (
-                    Color32::from_rgba_premultiplied(180, 0, 255, 20),
-                    Color32::from_rgba_premultiplied(180, 0, 255, 60),
-                    format!("I+{}", i + 1),
-                ),
-                (DensityMode::Iteration, false) => (
-                    Color32::from_rgba_premultiplied(255, 255, 0, 20),
-                    Color32::from_rgba_premultiplied(255, 255, 0, 60),
-                    format!("I-{}", i + 1),
-                ),
-            };
-            let stroke = egui::Stroke::new(1.5_f32, stroke_color);
-            shapes.push(Shape::Circle(egui::epaint::CircleShape {
-                center,
-                radius: screen_radius,
-                fill,
-                stroke,
-            }));
-            painter.text(
-                center,
-                Align2::CENTER_CENTER,
-                &label,
-                FontId::proportional(12.0),
-                Color32::WHITE,
-            );
-        }
-
-        painter.extend(shapes);
-    }
-
-    fn render_properties(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Propriétés");
-
-        if let Some(ref fractal) = self.fractal {
-            ui.label(format!("Dimension théorique: {:.4}", fractal.dimension));
-            ui.label(format!("Lignes: {}", fractal.lines.len()));
-            ui.label(format!("Points: {}", fractal.points.len()));
-
-            if let Some(ref bc) = fractal.box_counting {
-                ui.separator();
-                ui.label(format!("Dimension boîtes: {:.4}", bc.dimension));
-                ui.label(format!("Dimension d'information: {:.4}", bc.information_dimension));
-                ui.label(format!("Dimension de corrélation: {:.4}", bc.correlation_dimension));
-                ui.label(format!("Moyenne: {:.3e}", bc.proportion_mean).replace("e+", " e+").replace("e-", " e-"));
-                ui.label(format!("Variance: {:.3e}", bc.proportion_variance).replace("e+", " e+").replace("e-", " e-"));
-
-                // Diagnostic mono/multifractale basé sur la variance des proportions.
-                // Pour un monofractale, p_i ≈ 1/N partout → η ≈ 0.
-                // Pour un multifractale, p_i varie → η > 0.
-                let eta = if bc.proportion_mean > 0.0 {
-                    bc.proportion_variance / (bc.proportion_mean * bc.proportion_mean)
-                } else {
-                    0.0
-                };
-                ui.label(format!("  η (var/μ²): {:.4}", eta));
-                if eta < 1.0 {
-                    ui.label("-> Monofractal (mesure uniforme)");
-                } else {
-                    ui.label("-> Multifractal (mesure hétérogène)");
-                }
-
-                ui.separator();
-                ui.label("Spectre D_q:");
-                let q_labels = ["D₀", "D₁", "D₂", "D₃", "D₄"];
-                let dq_range = bc.d_q_spectrum.iter().cloned().fold(f32::MIN, f32::max)
-                    - bc.d_q_spectrum.iter().cloned().fold(f32::MAX, f32::min);
-                for (i, label) in q_labels.iter().enumerate() {
-                    ui.label(format!("  {} = {:.4}", label, bc.d_q_spectrum[i]));
-                }
-                ui.label(format!("  Étalement D_q: {:.4}", dq_range));
-            }
-
-            ui.separator();
-            ui.label("Données d'entrée:");
-            if let Some(ref s) = self.shape {
-                ui.label(format!("Shape: {} ({} pts)", s.name(), s.points().len()));
-            } else {
-                ui.label("Shape: (aucune)");
-            }
-            ui.label(format!("Patterns: {}", self.pattern_data.len()));
-            ui.label(format!("Figures initiales: {}", self.initial_data.len()));
-        }
-
-        if let Some(ref stats) = self.stats {
-            ui.separator();
-            ui.heading("Statistiques");
-            ui.label(format!("Nombre de Polya: {:.2}%", stats.polya_number));
-            ui.label(format!("Réussites: {}/{}", stats.success_count, self.simulation_count));
-            ui.label(format!("Nombre d'étapes moy: {:.2}", stats.average_steps));
-            ui.label(format!("Variance: {:.2}", stats.variance_steps));
-            ui.label(format!("Écart-type: {:.2}", stats.std_dev_steps));
-            ui.label(format!("Distance moyenne: {:.2}", stats.average_length));
-            if stats.max_simulation_time > 0.0 {
-                ui.label(format!("Temps max simulation: {:.2}s", stats.max_simulation_time));
-            }
-            if stats.total_simulation_time > 0.0 {
-                ui.label(format!("Temps total simulations: {:.2}s", stats.total_simulation_time));
-            }
-        }
-    }
-
-    fn render_player(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let enabled = self.selected_simulation.is_some();
-            if !enabled {
-                ui.disable();
-            }
-
-            let play_label = if self.is_playing { "⏸ Pause" } else { "▶ Jouer" };
-            if ui.button(play_label).clicked() {
-                self.is_playing = !self.is_playing;
-                self.animation_time = std::time::Instant::now();
-            }
-
-            if ui.button("⏹ Reset").clicked() {
-                self.current_step = 0;
-                self.is_playing = false;
-                self.ascending = true;
-            }
-
-            ui.separator();
-
-            if let Some(sim_idx) = self.selected_simulation {
-                let max_step = self.simulations[sim_idx].steps();
-                ui.add(egui::Slider::new(&mut self.current_step, 0..=max_step).text("Étape"));
-            }
-
-            ui.separator();
-
-            egui::ComboBox::from_id_salt("loop_mode")
-                .selected_text(LoopMode::variants()[self.loop_mode as usize])
-                .show_ui(ui, |ui| {
-                    for (i, name) in LoopMode::variants().iter().enumerate() {
-                        let mode: LoopMode = match i {
-                            1 => LoopMode::PlayOnceReset,
-                            2 => LoopMode::Repeat,
-                            3 => LoopMode::PlayOnceMirror,
-                            4 => LoopMode::RepeatMirror,
-                            _ => LoopMode::PlayOnce,
-                        };
-                        ui.selectable_value(&mut self.loop_mode, mode, *name);
-                    }
-                });
-
-            ui.add(egui::DragValue::new(&mut self.fps).range(1.0..=240.0).prefix("FPS: "));
-        });
-
-        if self.is_playing {
-            if let Some(sim_idx) = self.selected_simulation {
-                let elapsed = self.animation_time.elapsed().as_secs_f32();
-                if elapsed >= 1.0 / self.fps {
-                    self.animation_time = std::time::Instant::now();
-                    let max = self.simulations[sim_idx].steps();
-
-                    match self.loop_mode {
-                        LoopMode::PlayOnce => {
-                            if self.current_step < max {
-                                self.current_step += 1;
-                            } else {
-                                self.is_playing = false;
-                            }
-                        }
-                        LoopMode::PlayOnceReset => {
-                            if self.current_step < max {
-                                self.current_step += 1;
-                            } else {
-                                self.is_playing = false;
-                                self.current_step = 0;
-                            }
-                        }
-                        LoopMode::Repeat => {
-                            self.current_step += 1;
-                            if self.current_step > max {
-                                self.current_step = 0;
-                            }
-                        }
-                        LoopMode::PlayOnceMirror => {
-                            if self.ascending {
-                                if self.current_step < max {
-                                    self.current_step += 1;
-                                } else {
-                                    self.ascending = false;
-                                }
-                            } else {
-                                if self.current_step > 0 {
-                                    self.current_step -= 1;
-                                } else {
-                                    self.ascending = true;
-                                    self.is_playing = false;
-                                }
-                            }
-                        }
-                        LoopMode::RepeatMirror => {
-                            if self.ascending {
-                                if self.current_step < max {
-                                    self.current_step += 1;
-                                } else {
-                                    self.ascending = false;
-                                }
-                            } else {
-                                if self.current_step > 0 {
-                                    self.current_step -= 1;
-                                } else {
-                                    self.ascending = true;
-                                }
-                            }
-                        }
-                    }
-
-                    self.current_step = self.current_step.clamp(0, max);
-                }
+    fn render_export_window(&mut self, ctx: &egui::Context) {
+        let (default_beta, source) = self.default_export_beta();
+        if self.export.show(ctx, default_beta, source) {
+            if let Some(msg) = self.export.export_csv(self.fractal.as_ref(), self.file_stem()) {
+                shared::set_status_message(&mut self.message, msg);
             }
         }
     }
