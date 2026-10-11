@@ -135,11 +135,13 @@ impl<X: Clone> ShapeListEditor<X> {
     pub fn model_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Modèle", |ui| {
             if ui.button("Ouvrir un modèle (firfw)").clicked() {
-                if let Some((_path, content)) = file_io::open_json("Ouvrir un modèle", "firfw") {
-                    match shared::load_model(&content, &mut self.model_points, &mut self.model_lines) {
+                match file_io::open_json("Ouvrir un modèle", "firfw") {
+                    Ok(Some((_path, content))) => match shared::load_model(&content, &mut self.model_points, &mut self.model_lines) {
                         Ok(()) => self.info("Modèle chargé"),
                         Err(e) => self.error(e),
                     }
+                    Ok(None) => {}
+                    Err(e) => self.error(e),
                 }
                 ui.close_menu();
             }

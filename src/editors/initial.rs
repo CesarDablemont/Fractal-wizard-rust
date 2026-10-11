@@ -99,21 +99,25 @@ impl InitialEditor {
             ui.menu_button("Fichier", |ui| {
                 if ui.button("Ouvrir (tilfw)").clicked() {
                     self.list.push_undo();
-                    if let Some((_path, content)) = file_io::open_json("Ouvrir un fichier initial", "filfw") {
-                        match serde_json::from_str::<Vec<ShapePatternData>>(&content) {
+                    match file_io::open_json("Ouvrir un fichier initial", "filfw") {
+                        Ok(Some((_path, content))) => match serde_json::from_str::<Vec<ShapePatternData>>(&content) {
                             Ok(data) => {
                                 self.list.shapes = data;
                                 self.list.info("Fichier initial chargé");
                             }
                             Err(e) => self.list.error(e.to_string()),
                         }
+                        Ok(None) => {}
+                        Err(e) => self.list.error(e),
                     }
                     ui.close_menu();
                 }
                 if ui.button("Enregistrer (tilfw)").clicked() {
                     let json = serde_json::to_string_pretty(&self.list.shapes).unwrap();
-                    if file_io::save_json("Enregistrer le fichier initial", "filfw", &json) {
-                        self.list.info("Fichier initial enregistré");
+                    match file_io::save_json("Enregistrer le fichier initial", "filfw", &json) {
+                        Ok(Some(_)) => self.list.info("Fichier initial enregistré"),
+                        Ok(None) => {}
+                        Err(e) => self.list.error(e),
                     }
                     ui.close_menu();
                 }

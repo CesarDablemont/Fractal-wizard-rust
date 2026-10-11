@@ -71,8 +71,8 @@ impl FractalEditor {
 
     fn render_file_menu(&mut self, ui: &mut egui::Ui) {
         if ui.button("Ouvrir (ftlfw)").clicked() {
-            if let Some((path, content)) = file_io::open_json("Ouvrir une fractale", "ftlfw") {
-                match self.inputs.load_ftlfw(&content) {
+            match file_io::open_json("Ouvrir une fractale", "ftlfw") {
+                Ok(Some((path, content))) => match self.inputs.load_ftlfw(&content) {
                     Ok(()) => {
                         self.file_path = Some(path.display().to_string());
                         self.selected_density_source = None;
@@ -81,45 +81,55 @@ impl FractalEditor {
                     }
                     Err(e) => self.error(e),
                 }
+                Ok(None) => {}
+                Err(e) => self.error(e),
             }
             ui.close_menu();
         }
         if ui.button("Enregistrer (ftlfw)").clicked() {
             let json = self.inputs.to_ftlfw();
             let file_name = format!("{}.ftlfw", self.file_stem());
-            if file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json) {
-                self.info("Fractale enregistrée");
+            match file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json) {
+                Ok(Some(_)) => self.info("Fractale enregistrée"),
+                Ok(None) => {}
+                Err(e) => self.error(e),
             }
             ui.close_menu();
         }
         ui.separator();
         if ui.button("Importer figure (firfw)").clicked() {
-            if let Some((_path, content)) = file_io::open_json("Importer une figure", "firfw") {
-                match self.inputs.import_firfw(&content) {
+            match file_io::open_json("Importer une figure", "firfw") {
+                Ok(Some((_path, content))) => match self.inputs.import_firfw(&content) {
                     Ok(()) => {
                         self.canvas_renderer.rebuild_chunks = true;
                         self.info("Figure importée");
                     }
                     Err(e) => self.error(e),
                 }
+                Ok(None) => {}
+                Err(e) => self.error(e),
             }
             ui.close_menu();
         }
         if ui.button("Importer pattern (ptnfw)").clicked() {
-            if let Some((_path, content)) = file_io::open_json("Importer un pattern", "ptnfw") {
-                match self.inputs.import_ptnfw(&content) {
+            match file_io::open_json("Importer un pattern", "ptnfw") {
+                Ok(Some((_path, content))) => match self.inputs.import_ptnfw(&content) {
                     Ok(()) => self.info("Pattern importé"),
                     Err(e) => self.error(e),
                 }
+                Ok(None) => {}
+                Err(e) => self.error(e),
             }
             ui.close_menu();
         }
         if ui.button("Importer initiale (filfw)").clicked() {
-            if let Some((_path, content)) = file_io::open_json("Importer une figure initiale", "filfw") {
-                match self.inputs.import_filfw(&content) {
+            match file_io::open_json("Importer une figure initiale", "filfw") {
+                Ok(Some((_path, content))) => match self.inputs.import_filfw(&content) {
                     Ok(()) => self.info("Figure initiale importée"),
                     Err(e) => self.error(e),
                 }
+                Ok(None) => {}
+                Err(e) => self.error(e),
             }
             ui.close_menu();
         }

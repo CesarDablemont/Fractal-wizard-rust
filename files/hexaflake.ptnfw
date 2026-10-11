@@ -1,0 +1,61 @@
+{
+  "display_parent": false,
+  "patterns": [
+    {
+      "translate": [
+        -6.666667,
+        -1.0430813e-7
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        6.666667,
+        2.3841858e-7
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        -13.333334,
+        10.0
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        -6.6666665,
+        20.0
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        4.7683716e-7,
+        9.999999
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        13.333334,
+        9.999999
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    },
+    {
+      "translate": [
+        6.6666665,
+        20.0
+      ],
+      "rotate": 0.0,
+      "scale": 3.0
+    }
+  ]
+}

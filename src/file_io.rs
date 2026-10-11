@@ -101,48 +101,58 @@ fn clean_json(input: &str) -> String {
     output
 }
 
-pub fn open_json(title: &str, extension: &str) -> Option<(PathBuf, String)> {
-    let path = FileDialog::new()
+/// Message lisible pour une erreur IO sur `path`.
+fn io_error_message(action: &str, path: &Path, err: &std::io::Error) -> String {
+    use std::io::ErrorKind;
+    let cause = match err.kind() {
+        ErrorKind::NotFound => "fichier ou dossier introuvable".to_string(),
+        ErrorKind::PermissionDenied => "permissions insuffisantes".to_string(),
+        ErrorKind::InvalidData => "contenu invalide (encodage UTF-8 attendu)".to_string(),
+        ErrorKind::StorageFull => "disque plein".to_string(),
+        ErrorKind::ReadOnlyFilesystem => "système de fichiers en lecture seule".to_string(),
+        ErrorKind::IsADirectory => "le chemin désigne un dossier".to_string(),
+        ErrorKind::InvalidFilename => "nom de fichier invalide".to_string(),
+        _ => err.to_string(),
+    };
+    format!("Impossible {action} {} : {cause}", path.display())
+}
+
+/// Ouvre un fichier JSON choisi dans l'explorateur.
+/// Renvoie `Ok(None)` si l'utilisateur annule, `Err` si la lecture échoue.
+pub fn open_json(title: &str, extension: &str) -> Result<Option<(PathBuf, String)>, String> {
+    let Some(path) = FileDialog::new()
         .set_title(title)
         .set_directory(dialog_dir(DirKind::Files))
         .add_filter("JSON", &[extension, "json"])
-        .pick_file()?;
+        .pick_file()
+    else {
+        return Ok(None);
+    };
     remember_dir(DirKind::Files, &path);
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = std::fs::read_to_string(&path).map_err(|e| io_error_message("de lire", &path, &e))?;
     let cleaned = clean_json(&content);
-    Some((path, cleaned))
+    Ok(Some((path, cleaned)))
 }
 
-pub fn save_json(title: &str, extension: &str, data: &str) -> bool {
-    let path = FileDialog::new()
-        .set_title(title)
-        .set_directory(dialog_dir(DirKind::Files))
-        .add_filter("JSON", &[extension, "json"])
-        .set_file_name(format!("untitled.{extension}"))
-        .save_file();
-    match path {
-        Some(p) => {
-            remember_dir(DirKind::Files, &p);
-            std::fs::write(&p, data).is_ok()
-        }
-        None => false,
-    }
+pub fn save_json(title: &str, extension: &str, data: &str) -> Result<Option<PathBuf>, String> {
+    save_json_path(title, extension, &format!("untitled.{extension}"), data)
 }
 
-pub fn save_json_path(title: &str, extension: &str, default_name: &str, data: &str) -> bool {
-    let path = FileDialog::new()
+/// Enregistre `data` à l'emplacement choisi dans l'explorateur.
+/// Renvoie `Ok(None)` si l'utilisateur annule, `Err` si l'écriture échoue.
+pub fn save_json_path(title: &str, extension: &str, default_name: &str, data: &str) -> Result<Option<PathBuf>, String> {
+    let Some(path) = FileDialog::new()
         .set_title(title)
         .set_directory(dialog_dir(DirKind::Files))
         .add_filter("JSON", &[extension, "json"])
         .set_file_name(default_name)
-        .save_file();
-    match path {
-        Some(p) => {
-            remember_dir(DirKind::Files, &p);
-            std::fs::write(&p, data).is_ok()
-        }
-        None => false,
-    }
+        .save_file()
+    else {
+        return Ok(None);
+    };
+    remember_dir(DirKind::Files, &path);
+    std::fs::write(&path, data).map_err(|e| io_error_message("d'écrire", &path, &e))?;
+    Ok(Some(path))
 }
 
 /// Demande un nom de base pour un export en plusieurs fichiers CSV.
@@ -211,6 +221,13 @@ mod tests {
     fn csv_path_appends_suffix() {
         let path = csv_path(Path::new("files/csv/sierpinski"), "_edges");
         assert_eq!(path, PathBuf::from("files/csv/sierpinski_edges.csv"));
+    }
+
+    #[test]
+    fn io_error_message_explains_cause() {
+        let err = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let msg = io_error_message("d'écrire", Path::new("files/a.ftlfw"), &err);
+        assert_eq!(msg, "Impossible d'écrire files/a.ftlfw : permissions insuffisantes");
     }
 
     #[test]
