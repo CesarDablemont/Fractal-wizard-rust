@@ -69,38 +69,6 @@ fn remember_dir(kind: DirKind, path: &Path) {
     *slot = Some(parent.to_path_buf());
 }
 
-fn clean_json(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut i = 0;
-    let mut in_string = false;
-    let mut escape = false;
-    while i < bytes.len() {
-        if escape {
-            escape = false;
-        } else if bytes[i] == b'\\' {
-            escape = true;
-        } else if bytes[i] == b'"' {
-            in_string = !in_string;
-        }
-        if !in_string && bytes[i] == b',' {
-            let mut j = i + 1;
-            while j < bytes.len()
-                && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\n' || bytes[j] == b'\r')
-            {
-                j += 1;
-            }
-            if j < bytes.len() && (bytes[j] == b']' || bytes[j] == b'}') {
-                i += 1;
-                continue;
-            }
-        }
-        output.push(bytes[i] as char);
-        i += 1;
-    }
-    output
-}
-
 /// Message lisible pour une erreur IO sur `path`.
 fn io_error_message(action: &str, path: &Path, err: &std::io::Error) -> String {
     use std::io::ErrorKind;
@@ -130,8 +98,7 @@ pub fn open_json(title: &str, extension: &str) -> Result<Option<(PathBuf, String
     };
     remember_dir(DirKind::Files, &path);
     let content = std::fs::read_to_string(&path).map_err(|e| io_error_message("de lire", &path, &e))?;
-    let cleaned = clean_json(&content);
-    Ok(Some((path, cleaned)))
+    Ok(Some((path, content)))
 }
 
 pub fn save_json(title: &str, extension: &str, data: &str) -> Result<Option<PathBuf>, String> {
