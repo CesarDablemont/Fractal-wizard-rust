@@ -92,6 +92,8 @@ impl FigureEditor {
     }
 
     pub fn render(&mut self, ctx: &egui::Context) {
+        self.handle_shortcuts(&shared::Shortcuts::read(ctx));
+
         egui::TopBottomPanel::top("figure_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
         });
@@ -132,6 +134,53 @@ impl FigureEditor {
     fn redo(&mut self) {
         if let Some(state) = self.undo_stack.redo(self.snapshot()) {
             self.restore(state);
+        }
+    }
+
+    fn handle_shortcuts(&mut self, keys: &shared::Shortcuts) {
+        if keys.save {
+            self.save();
+        }
+        if keys.undo {
+            self.undo();
+        }
+        if keys.redo {
+            self.redo();
+        }
+        if keys.escape {
+            self.state = EditorState::Mouse;
+            self.equilateral_mode = false;
+            self.selected_point = None;
+        }
+        if keys.delete {
+            self.remove_selected_point();
+        }
+    }
+
+    fn remove_selected_point(&mut self) {
+        let Some(idx) = self.selected_point else { return };
+        if self.shape.is_some() {
+            self.push_undo();
+        }
+        if let Some(ref mut shape) = self.shape {
+            shape.remove_point(idx);
+            self.selected_point = None;
+        }
+    }
+
+    fn save(&mut self) {
+        let Some(ref shape) = self.shape else { return };
+        let data = shared::ModelData::from_shape(shape);
+        let name = self.file_path.as_deref().and_then(|p| {
+            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
+        }).unwrap_or("figure");
+        let saved = serde_json::to_string_pretty(&data)
+            .map_err(|e| e.to_string())
+            .and_then(|json| file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json));
+        match saved {
+            Ok(Some(_)) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée")),
+            Ok(None) => {}
+            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e)),
         }
     }
 
@@ -177,21 +226,8 @@ impl FigureEditor {
                     }
                     ui.close_menu();
                 }
-                if ui.button("Enregistrer").clicked() {
-                    if let Some(ref shape) = self.shape {
-                        let data = shared::ModelData::from_shape(shape);
-                        let name = self.file_path.as_deref().and_then(|p| {
-                            std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
-                        }).unwrap_or("figure");
-                        let saved = serde_json::to_string_pretty(&data)
-                            .map_err(|e| e.to_string())
-                            .and_then(|json| file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json));
-                        match saved {
-                            Ok(Some(_)) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée")),
-                            Ok(None) => {}
-                            Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e)),
-                        }
-                    }
+                if shared::save_button(ui, "Enregistrer") {
+                    self.save();
                     ui.close_menu();
                 }
             });
@@ -302,13 +338,6 @@ impl FigureEditor {
         let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
         let pointer_released = ui.input(|i| i.pointer.any_released());
 
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
-            self.undo();
-        }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
-            self.redo();
-        }
-
         if self.gizmo_dragging {
             if pointer_released {
                 self.gizmo_dragging = false;
@@ -395,15 +424,7 @@ impl FigureEditor {
         }
 
         if response.clicked_by(egui::PointerButton::Secondary) {
-            if let Some(idx) = self.selected_point {
-                if self.shape.is_some() {
-                    self.push_undo();
-                }
-                if let Some(ref mut shape) = self.shape {
-                    shape.remove_point(idx);
-                    self.selected_point = None;
-                }
-            }
+            self.remove_selected_point();
         }
 
         painter.extend(shapes);

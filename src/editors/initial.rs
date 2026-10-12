@@ -67,7 +67,11 @@ impl InitialEditor {
             self.list.shapes = vec![ShapePatternData::default()];
         }
 
-        self.list.handle_delete_key(ctx);
+        let keys = shared::Shortcuts::read(ctx);
+        if keys.save {
+            self.save();
+        }
+        self.list.handle_shortcuts(ctx, &keys);
 
         egui::TopBottomPanel::top("initial_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
@@ -94,6 +98,17 @@ impl InitialEditor {
             });
     }
 
+    fn save(&mut self) {
+        let saved = serde_json::to_string_pretty(&self.list.shapes)
+            .map_err(|e| e.to_string())
+            .and_then(|json| file_io::save_json("Enregistrer le fichier initial", "filfw", &json));
+        match saved {
+            Ok(Some(_)) => self.list.info("Fichier initial enregistré"),
+            Ok(None) => {}
+            Err(e) => self.list.error(e),
+        }
+    }
+
     fn render_menu(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.menu_button("Fichier", |ui| {
@@ -112,15 +127,8 @@ impl InitialEditor {
                     }
                     ui.close_menu();
                 }
-                if ui.button("Enregistrer (tilfw)").clicked() {
-                    let saved = serde_json::to_string_pretty(&self.list.shapes)
-                        .map_err(|e| e.to_string())
-                        .and_then(|json| file_io::save_json("Enregistrer le fichier initial", "filfw", &json));
-                    match saved {
-                        Ok(Some(_)) => self.list.info("Fichier initial enregistré"),
-                        Ok(None) => {}
-                        Err(e) => self.list.error(e),
-                    }
+                if shared::save_button(ui, "Enregistrer (tilfw)") {
+                    self.save();
                     ui.close_menu();
                 }
             });

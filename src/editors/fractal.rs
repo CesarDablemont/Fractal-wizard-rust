@@ -226,7 +226,25 @@ impl FractalEditor {
         }
     }
 
+    fn handle_shortcuts(&mut self, keys: &shared::Shortcuts) {
+        if keys.save {
+            self.save();
+        }
+        if keys.escape {
+            self.state = EditorState::Mouse;
+            self.selected_density_source = None;
+        }
+        if keys.delete {
+            if let Some(idx) = self.selected_density_source.take() {
+                if idx < self.inputs.density_sources.len() {
+                    self.inputs.density_sources.remove(idx);
+                }
+            }
+        }
+    }
+
     pub fn render(&mut self, ctx: &egui::Context) {
+        self.handle_shortcuts(&shared::Shortcuts::read(ctx));
         self.update_chunks();
         self.advance_simulation();
 
