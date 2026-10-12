@@ -118,7 +118,7 @@ impl Camera {
         candidates.into_iter().min_by(|a, b| {
             let da = (a - target).abs();
             let db = (b - target).abs();
-            da.partial_cmp(&db).unwrap()
+            da.total_cmp(&db)
         }).unwrap_or(25.0)
     }
 
