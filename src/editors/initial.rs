@@ -113,8 +113,10 @@ impl InitialEditor {
                     ui.close_menu();
                 }
                 if ui.button("Enregistrer (tilfw)").clicked() {
-                    let json = serde_json::to_string_pretty(&self.list.shapes).unwrap();
-                    match file_io::save_json("Enregistrer le fichier initial", "filfw", &json) {
+                    let saved = serde_json::to_string_pretty(&self.list.shapes)
+                        .map_err(|e| e.to_string())
+                        .and_then(|json| file_io::save_json("Enregistrer le fichier initial", "filfw", &json));
+                    match saved {
                         Ok(Some(_)) => self.list.info("Fichier initial enregistré"),
                         Ok(None) => {}
                         Err(e) => self.list.error(e),

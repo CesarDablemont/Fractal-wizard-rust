@@ -126,8 +126,10 @@ impl PatternEditor {
                         display_parent: self.list.extra,
                         patterns: self.list.shapes.clone(),
                     };
-                    let json = serde_json::to_string_pretty(&data).unwrap();
-                    match file_io::save_json("Enregistrer le pattern", "ptnfw", &json) {
+                    let saved = serde_json::to_string_pretty(&data)
+                        .map_err(|e| e.to_string())
+                        .and_then(|json| file_io::save_json("Enregistrer le pattern", "ptnfw", &json));
+                    match saved {
                         Ok(Some(_)) => self.list.info("Pattern enregistré"),
                         Ok(None) => {}
                         Err(e) => self.list.error(e),
