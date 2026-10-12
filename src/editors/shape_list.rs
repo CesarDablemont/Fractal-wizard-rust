@@ -122,13 +122,62 @@ impl<X: Clone> ShapeListEditor<X> {
         self.selected.clear();
     }
 
-    pub fn handle_delete_key(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.key_pressed(egui::Key::Delete)) {
-            if !self.selected.is_empty() {
-                self.push_undo();
-            }
+    /// Raccourcis d'édition : suppression, undo/redo, sélection et copier/coller.
+    ///
+    /// Le copier/coller passe par le presse-papier système en JSON, ce qui permet
+    /// de coller d'un éditeur de formes à l'autre.
+    pub fn handle_shortcuts(&mut self, ctx: &egui::Context, keys: &shared::Shortcuts) {
+        if keys.delete && !self.selected.is_empty() {
+            self.push_undo();
             self.remove_selected();
         }
+        if keys.undo {
+            self.undo();
+        }
+        if keys.redo {
+            self.redo();
+        }
+        if keys.escape {
+            self.selected.clear();
+        }
+        if keys.select_all {
+            self.selected = (0..self.shapes.len()).collect();
+        }
+        if keys.copy {
+            self.copy_selected(ctx);
+        }
+        if let Some(text) = &keys.paste {
+            self.paste(text);
+        }
+    }
+
+    fn copy_selected(&mut self, ctx: &egui::Context) {
+        let copied: Vec<&ShapePatternData> = self.selected
+            .iter()
+            .filter_map(|&i| self.shapes.get(i))
+            .collect();
+        if copied.is_empty() {
+            return;
+        }
+        match serde_json::to_string(&copied) {
+            Ok(json) => {
+                ctx.copy_text(json);
+                self.info(format!("{} élément(s) copié(s)", copied.len()));
+            }
+            Err(e) => self.error(e.to_string()),
+        }
+    }
+
+    /// Colle des formes copiées ; un texte qui n'en contient pas est ignoré.
+    fn paste(&mut self, text: &str) {
+        let Ok(pasted) = serde_json::from_str::<Vec<ShapePatternData>>(text) else { return };
+        if pasted.is_empty() {
+            return;
+        }
+        self.push_undo();
+        let start = self.shapes.len();
+        self.shapes.extend(pasted);
+        self.selected = (start..self.shapes.len()).collect();
     }
 
     /// Menu « Modèle » : charge la figure dupliquée par l'éditeur.
@@ -271,13 +320,6 @@ impl<X: Clone> ShapeListEditor<X> {
         let pointer_pressed = ui.input(|i| i.pointer.any_pressed());
         let pointer_released = ui.input(|i| i.pointer.any_released());
         let half = self.camera.point_size;
-
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z) && !i.modifiers.shift) {
-            self.undo();
-        }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Y)) {
-            self.redo();
-        }
 
         if self.gizmo_dragging {
             if pointer_released {

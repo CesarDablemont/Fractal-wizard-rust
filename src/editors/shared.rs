@@ -131,6 +131,61 @@ pub fn edit_options(ui: &mut egui::Ui, show_gizmo: &mut bool, camera: &mut Camer
     ui.checkbox(&mut camera.magnetism, "Magnétisme");
 }
 
+const SAVE_SHORTCUT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S);
+const SELECT_ALL_SHORTCUT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::A);
+const UNDO_SHORTCUT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z);
+const REDO_SHORTCUT: egui::KeyboardShortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Y);
+const REDO_SHIFT_SHORTCUT: egui::KeyboardShortcut =
+    egui::KeyboardShortcut::new(egui::Modifiers::COMMAND.plus(egui::Modifiers::SHIFT), egui::Key::Z);
+
+/// Raccourcis clavier pressés pendant la frame, communs à tous les éditeurs.
+///
+/// Rien n'est capté quand un champ texte a le focus, pour lui laisser ses propres raccourcis.
+#[derive(Default)]
+pub struct Shortcuts {
+    pub save: bool,
+    pub escape: bool,
+    pub select_all: bool,
+    pub delete: bool,
+    pub undo: bool,
+    pub redo: bool,
+    /// Ctrl+C : egui-winit le transmet comme `Event::Copy`, pas comme une touche.
+    pub copy: bool,
+    /// Ctrl+V : contenu du presse-papier système (`Event::Paste`).
+    pub paste: Option<String>,
+}
+
+impl Shortcuts {
+    pub fn read(ctx: &egui::Context) -> Self {
+        if ctx.wants_keyboard_input() {
+            return Self::default();
+        }
+        ctx.input_mut(|i| {
+            // Ctrl+Shift+Z avant Ctrl+Z : `consume_shortcut` ignore un Shift en trop.
+            let redo = i.consume_shortcut(&REDO_SHIFT_SHORTCUT) | i.consume_shortcut(&REDO_SHORTCUT);
+            Self {
+                save: i.consume_shortcut(&SAVE_SHORTCUT),
+                escape: i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                select_all: i.consume_shortcut(&SELECT_ALL_SHORTCUT),
+                delete: i.consume_key(egui::Modifiers::NONE, egui::Key::Delete),
+                undo: i.consume_shortcut(&UNDO_SHORTCUT),
+                redo,
+                copy: i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
+                paste: i.events.iter().find_map(|e| match e {
+                    egui::Event::Paste(text) => Some(text.clone()),
+                    _ => None,
+                }),
+            }
+        })
+    }
+}
+
+/// Bouton de menu « Enregistrer » affichant le raccourci Ctrl+S.
+pub fn save_button(ui: &mut egui::Ui, label: &str) -> bool {
+    let shortcut = ui.ctx().format_shortcut(&SAVE_SHORTCUT);
+    ui.add(egui::Button::new(label).shortcut_text(shortcut)).clicked()
+}
+
 pub struct GizmoContext<'a> {
     pub ui: &'a egui::Ui,
     pub camera: &'a Camera,

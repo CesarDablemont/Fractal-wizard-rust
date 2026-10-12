@@ -77,7 +77,11 @@ impl PatternEditor {
             self.list.model_lines = lns;
         }
 
-        self.list.handle_delete_key(ctx);
+        let keys = shared::Shortcuts::read(ctx);
+        if keys.save {
+            self.save();
+        }
+        self.list.handle_shortcuts(ctx, &keys);
 
         egui::TopBottomPanel::top("pattern_editor_menu").show(ctx, |ui| {
             self.render_menu(ui);
@@ -121,19 +125,8 @@ impl PatternEditor {
                     }
                     ui.close_menu();
                 }
-                if ui.button("Enregistrer (ptnfw)").clicked() {
-                    let data = PatternFile {
-                        display_parent: self.list.extra,
-                        patterns: self.list.shapes.clone(),
-                    };
-                    let saved = serde_json::to_string_pretty(&data)
-                        .map_err(|e| e.to_string())
-                        .and_then(|json| file_io::save_json("Enregistrer le pattern", "ptnfw", &json));
-                    match saved {
-                        Ok(Some(_)) => self.list.info("Pattern enregistré"),
-                        Ok(None) => {}
-                        Err(e) => self.list.error(e),
-                    }
+                if shared::save_button(ui, "Enregistrer (ptnfw)") {
+                    self.save();
                     ui.close_menu();
                 }
             });
@@ -154,6 +147,21 @@ impl PatternEditor {
 
             shared::render_status_message(ui, &mut self.list.message);
         });
+    }
+
+    fn save(&mut self) {
+        let data = PatternFile {
+            display_parent: self.list.extra,
+            patterns: self.list.shapes.clone(),
+        };
+        let saved = serde_json::to_string_pretty(&data)
+            .map_err(|e| e.to_string())
+            .and_then(|json| file_io::save_json("Enregistrer le pattern", "ptnfw", &json));
+        match saved {
+            Ok(Some(_)) => self.list.info("Pattern enregistré"),
+            Ok(None) => {}
+            Err(e) => self.list.error(e),
+        }
     }
 
     fn render_properties(&mut self, ui: &mut egui::Ui) {

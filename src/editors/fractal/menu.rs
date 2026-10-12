@@ -86,15 +86,8 @@ impl FractalEditor {
             }
             ui.close_menu();
         }
-        if ui.button("Enregistrer (ftlfw)").clicked() {
-            let file_name = format!("{}.ftlfw", self.file_stem());
-            let saved = self.inputs.to_ftlfw()
-                .and_then(|json| file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json));
-            match saved {
-                Ok(Some(_)) => self.info("Fractale enregistrée"),
-                Ok(None) => {}
-                Err(e) => self.error(e),
-            }
+        if shared::save_button(ui, "Enregistrer (ftlfw)") {
+            self.save();
             ui.close_menu();
         }
         ui.separator();
@@ -138,6 +131,17 @@ impl FractalEditor {
         if ui.button("Exporter (csv)").clicked() {
             self.open_export_window();
             ui.close_menu();
+        }
+    }
+
+    pub(super) fn save(&mut self) {
+        let file_name = format!("{}.ftlfw", self.file_stem());
+        let saved = self.inputs.to_ftlfw()
+            .and_then(|json| file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json));
+        match saved {
+            Ok(Some(_)) => self.info("Fractale enregistrée"),
+            Ok(None) => {}
+            Err(e) => self.error(e),
         }
     }
 
