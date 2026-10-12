@@ -8,14 +8,29 @@ use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 /// Réglages mémorisés entre deux lancements (persistance eframe).
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(default)]
 struct AppSettings {
+    /// Zoom de l'interface, appliqué par-dessus le DPI natif de l'écran.
+    ui_zoom: f32,
     figure: FigureSettings,
     pattern: PatternSettings,
     initial: InitialSettings,
     fractal: FractalSettings,
     recent_dirs: RecentDirs,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            ui_zoom: 1.0,
+            figure: FigureSettings::default(),
+            pattern: PatternSettings::default(),
+            initial: InitialSettings::default(),
+            fractal: FractalSettings::default(),
+            recent_dirs: RecentDirs::default(),
+        }
+    }
 }
 
 #[derive(PartialEq)]
@@ -34,6 +49,7 @@ pub struct FractalWizardApp {
     fractal_editor: FractalEditor,
     last_frame: Instant,
     fps: f32,
+    ui_zoom: f32,
 }
 
 impl Default for FractalWizardApp {
@@ -46,6 +62,7 @@ impl Default for FractalWizardApp {
             fractal_editor: FractalEditor::default(),
             last_frame: Instant::now(),
             fps: 60.0,
+            ui_zoom: 1.0,
         }
     }
 }
@@ -57,6 +74,7 @@ impl FractalWizardApp {
             .storage
             .and_then(|storage| eframe::get_value::<AppSettings>(storage, eframe::APP_KEY))
         {
+            cc.egui_ctx.set_zoom_factor(settings.ui_zoom);
             app.figure_editor.apply_settings(&settings.figure);
             app.pattern_editor.apply_settings(&settings.pattern);
             app.initial_editor.apply_settings(&settings.initial);
@@ -70,6 +88,7 @@ impl FractalWizardApp {
 impl eframe::App for FractalWizardApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         let settings = AppSettings {
+            ui_zoom: self.ui_zoom,
             figure: self.figure_editor.settings(),
             pattern: self.pattern_editor.settings(),
             initial: self.initial_editor.settings(),
@@ -80,7 +99,7 @@ impl eframe::App for FractalWizardApp {
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.set_pixels_per_point(1.5);
+        self.ui_zoom = ctx.zoom_factor();
 
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f32();
@@ -90,6 +109,13 @@ impl eframe::App for FractalWizardApp {
         egui::TopBottomPanel::top("main_toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("FractalWizard");
+
+                ui.separator();
+
+                ui.menu_button("Affichage", |ui| {
+                    ui.label(format!("Zoom : {:.0} %", ctx.zoom_factor() * 100.0));
+                    egui::gui_zoom::zoom_menu_buttons(ui);
+                });
 
                 ui.separator();
 
