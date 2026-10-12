@@ -180,11 +180,13 @@ impl FigureEditor {
                 if ui.button("Enregistrer").clicked() {
                     if let Some(ref shape) = self.shape {
                         let data = shared::ModelData::from_shape(shape);
-                        let json = serde_json::to_string_pretty(&data).unwrap();
                         let name = self.file_path.as_deref().and_then(|p| {
                             std::path::Path::new(p).file_stem().and_then(|s| s.to_str())
                         }).unwrap_or("figure");
-                        match file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json) {
+                        let saved = serde_json::to_string_pretty(&data)
+                            .map_err(|e| e.to_string())
+                            .and_then(|json| file_io::save_json_path("Enregistrer la figure", "firfw", &format!("{name}.firfw"), &json));
+                        match saved {
                             Ok(Some(_)) => shared::set_status_message(&mut self.message, shared::StatusMessage::info("Figure enregistrée")),
                             Ok(None) => {}
                             Err(e) => shared::set_status_message(&mut self.message, shared::StatusMessage::error(e)),

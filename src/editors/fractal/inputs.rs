@@ -151,7 +151,7 @@ impl FractalInputs {
     }
 
     /// Contenu d'un fichier `.ftlfw`.
-    pub(super) fn to_ftlfw(&self) -> String {
+    pub(super) fn to_ftlfw(&self) -> Result<String, String> {
         let data = FractalFile {
             shape: self.shape.as_ref().map(shared::ModelData::from_shape),
             pattern: PatternEditorData {
@@ -166,6 +166,6 @@ impl FractalInputs {
             delta_intervals: self.delta_intervals,
             density_sources: self.density_sources.clone(),
         };
-        serde_json::to_string_pretty(&data).unwrap()
+        serde_json::to_string_pretty(&data).map_err(|e| e.to_string())
     }
 }

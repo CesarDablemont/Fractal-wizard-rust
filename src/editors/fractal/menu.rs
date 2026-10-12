@@ -87,9 +87,10 @@ impl FractalEditor {
             ui.close_menu();
         }
         if ui.button("Enregistrer (ftlfw)").clicked() {
-            let json = self.inputs.to_ftlfw();
             let file_name = format!("{}.ftlfw", self.file_stem());
-            match file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json) {
+            let saved = self.inputs.to_ftlfw()
+                .and_then(|json| file_io::save_json_path("Enregistrer la fractale", "ftlfw", &file_name, &json));
+            match saved {
                 Ok(Some(_)) => self.info("Fractale enregistrée"),
                 Ok(None) => {}
                 Err(e) => self.error(e),
