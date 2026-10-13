@@ -316,7 +316,7 @@ mod tests {
         use crate::types::ShapePatternData;
         use eframe::egui::vec2;
 
-        let base = vec![pos2(-5.0, 0.0), pos2(5.0, 0.0), pos2(0.0, 8.660254)];
+        let base = [pos2(-5.0, 0.0), pos2(5.0, 0.0), pos2(0.0, 8.660254)];
         let pattern = vec![
             ShapePatternData { translate: pos2(-2.5, 0.0), rotate: 0.0, scale: 2.0 },
             ShapePatternData { translate: pos2(2.5, 0.0), rotate: 0.0, scale: 2.0 },
