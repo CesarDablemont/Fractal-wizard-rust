@@ -6,8 +6,8 @@ body = """
     {% for commit in commits %}
         - {% if commit.scope %}**{{ commit.scope | trim_start_matches(pat="(") | trim_end_matches(pat=")") }}:** {% endif %}\
             {% if commit.breaking %}**BREAKING** {% endif %}\
-            {{ commit.message | upper_first }}\
-            {% if commit.remote.pr_number %} ([#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }})){% endif %}\
+            {{ commit.message | upper_first }} \
+            {% if commit.remote.pr_number %}([#{{ commit.remote.pr_number }}](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/pull/{{ commit.remote.pr_number }})) {% endif %}\
             ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}/commit/{{ commit.id }}))\
     {% endfor %}
 {% endfor %}\n
